@@ -12,6 +12,7 @@ class HRPortalAPITester:
         self.employee_token = None
         self.employee_id = None
         self.leave_request_id = None
+        self.permission_id = None
         self.attendance_id = None
         self.tests_run = 0
         self.tests_passed = 0
@@ -333,11 +334,139 @@ class HRPortalAPITester:
             print(f"   New department: {response.get('department')}")
         return success
 
+    def test_permission_balance(self):
+        """Test permission balance endpoint"""
+        success, response = self.run_test(
+            "Permission Balance",
+            "GET",
+            "permission/balance",
+            200
+        )
+        if success:
+            print(f"   Monthly allowance: {response.get('monthly_allowance_hours', 0)} hours")
+            print(f"   Used minutes: {response.get('used_minutes', 0)}")
+            print(f"   Remaining hours: {response.get('remaining_hours', 0)}")
+            print(f"   Max per use: {response.get('max_per_use_minutes', 0)} minutes")
+        return success
+
+    def test_permission_request(self):
+        """Test creating permission request"""
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        permission_data = {
+            "duration_minutes": 60,
+            "reason": "Medical appointment",
+            "date": tomorrow
+        }
+        
+        success, response = self.run_test(
+            "Create Permission Request",
+            "POST",
+            "permission/request",
+            200,
+            data=permission_data
+        )
+        if success and 'id' in response:
+            self.permission_id = response['id']
+            print(f"   Permission request ID: {self.permission_id}")
+            print(f"   Duration: {response.get('duration_minutes')} minutes")
+            print(f"   Status: {response.get('status')}")
+        return success
+
+    def test_my_permissions(self):
+        """Test getting my permission requests"""
+        success, response = self.run_test(
+            "Get My Permission Requests",
+            "GET",
+            "permission/my-requests",
+            200
+        )
+        if success:
+            print(f"   Found {len(response)} permission requests")
+        return success
+
+    def test_admin_permissions_view(self):
+        """Test admin viewing all permission requests"""
+        # Login as admin first
+        self.test_admin_login()
+        
+        success, response = self.run_test(
+            "Get All Permission Requests",
+            "GET",
+            "admin/permissions",
+            200
+        )
+        if success:
+            print(f"   Found {len(response)} total permission requests")
+        return success
+
+    def test_admin_permission_approval(self):
+        """Test admin permission approval"""
+        if not hasattr(self, 'permission_id') or not self.permission_id:
+            print("❌ No permission request to approve")
+            return False
+
+        success, response = self.run_test(
+            "Approve Permission Request",
+            "PUT",
+            f"admin/permissions/{self.permission_id}?action=approve",
+            200
+        )
+        if success:
+            print(f"   Permission request approved")
+        return success
+
+    def test_working_hours_summary(self):
+        """Test working hours summary endpoint"""
+        # Login as employee first
+        if hasattr(self, 'employee_id') and self.employee_id:
+            # Get employee details and login
+            success, employees = self.run_test(
+                "Get Employee for Summary",
+                "GET",
+                "admin/employees",
+                200
+            )
+            
+            if success:
+                test_employee = None
+                for emp in employees:
+                    if emp['id'] == self.employee_id:
+                        test_employee = emp
+                        break
+                        
+                if test_employee:
+                    # Login as employee
+                    self.run_test(
+                        "Employee Login for Summary",
+                        "POST",
+                        "auth/login",
+                        200,
+                        data={"email": test_employee['email'], "password": "TestPass123!"}
+                    )
+
+        success, response = self.run_test(
+            "Working Hours Summary",
+            "GET",
+            "attendance/working-hours-summary",
+            200
+        )
+        if success:
+            print(f"   Total working days: {response.get('total_working_days', 0)}")
+            print(f"   Total working hours: {response.get('total_working_hours', 0)}")
+            print(f"   Average hours per day: {response.get('average_hours_per_day', 0)}")
+            print(f"   Short days count: {response.get('short_days_count', 0)}")
+            print(f"   Half days deducted: {response.get('half_days_deducted', 0)}")
+        return success
+
     def test_employee_deletion(self):
         """Test deleting employee"""
         if not self.employee_id:
             print("❌ No employee to delete")
             return False
+
+        # Login as admin first
+        self.test_admin_login()
 
         success, response = self.run_test(
             "Delete Employee",
@@ -364,6 +493,12 @@ def main():
         ("Employee Login", tester.test_employee_login),
         ("Attendance Flow", tester.test_attendance_flow),
         ("Leave Management", tester.test_leave_management),
+        ("Permission Balance", tester.test_permission_balance),
+        ("Permission Request", tester.test_permission_request),
+        ("My Permissions", tester.test_my_permissions),
+        ("Admin Permissions View", tester.test_admin_permissions_view),
+        ("Admin Permission Approval", tester.test_admin_permission_approval),
+        ("Working Hours Summary", tester.test_working_hours_summary),
         ("Admin Leave Approval", tester.test_admin_leave_approval),
         ("Admin Attendance View", tester.test_admin_attendance_view),
         ("Employee Update", tester.test_employee_update),

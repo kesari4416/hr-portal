@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, ChartBar, Clock, House, 
-  UserPlus, Check, X, Coffee, Trash, PencilSimple
+  UserPlus, Check, X, Trash, PencilSimple, Hourglass, Timer
 } from "@phosphor-icons/react";
 
 export default function AdminDashboard() {
@@ -17,6 +17,7 @@ export default function AdminDashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
+  const [permissionRequests, setPermissionRequests] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
@@ -37,21 +38,24 @@ export default function AdminDashboard() {
     position: "",
     casual_leave: 0,
     sick_leave: 0,
-    earned_leave: 0
+    earned_leave: 0,
+    permission_hours: 2
   });
 
   const fetchData = useCallback(async () => {
     try {
-      const [analyticsRes, employeesRes, leaveRes, attendanceRes] = await Promise.all([
+      const [analyticsRes, employeesRes, leaveRes, attendanceRes, permRes] = await Promise.all([
         api.get("/admin/analytics"),
         api.get("/admin/employees"),
         api.get("/admin/leave-requests"),
-        api.get("/admin/attendance")
+        api.get("/admin/attendance"),
+        api.get("/admin/permissions")
       ]);
       setAnalytics(analyticsRes.data);
       setEmployees(employeesRes.data);
       setLeaveRequests(leaveRes.data);
       setAttendance(attendanceRes.data);
+      setPermissionRequests(permRes.data);
     } catch (error) {
       console.error("Error fetching admin data:", error);
     }
@@ -120,6 +124,16 @@ export default function AdminDashboard() {
     }
   };
 
+  const handlePermissionAction = async (permissionId, action) => {
+    try {
+      await api.put(`/admin/permissions/${permissionId}?action=${action}`);
+      toast.success(`Permission request ${action}d`);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to process permission request");
+    }
+  };
+
   const openEditModal = (employee) => {
     setSelectedEmployee(employee);
     setEditForm({
@@ -128,7 +142,8 @@ export default function AdminDashboard() {
       position: employee.position || "",
       casual_leave: employee.casual_leave || 12,
       sick_leave: employee.sick_leave || 6,
-      earned_leave: employee.earned_leave || 15
+      earned_leave: employee.earned_leave || 15,
+      permission_hours: employee.permission_hours || 2
     });
     setEditEmployeeOpen(true);
   };
@@ -148,6 +163,7 @@ export default function AdminDashboard() {
     { id: "overview", label: "Overview", icon: House },
     { id: "employees", label: "Employees", icon: Users },
     { id: "leaves", label: "Leave Requests", icon: CalendarCheck },
+    { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
   ];
 
@@ -585,13 +601,14 @@ export default function AdminDashboard() {
                     <th className="table-header">Clock In</th>
                     <th className="table-header">Clock Out</th>
                     <th className="table-header">Break Time</th>
+                    <th className="table-header">Working Hours</th>
                     <th className="table-header">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {attendance.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-8 text-gray-500">No attendance records</td>
+                      <td colSpan="7" className="text-center py-8 text-gray-500">No attendance records</td>
                     </tr>
                   ) : (
                     attendance.slice(0, 50).map((rec, idx) => (
@@ -604,10 +621,87 @@ export default function AdminDashboard() {
                         </td>
                         <td className="table-cell">{rec.total_break_minutes || 0} min</td>
                         <td className="table-cell">
-                          {rec.clock_out ? (
+                          <span className={rec.working_hours && rec.working_hours < 8 ? "text-[#FF2E00] font-medium" : ""}>
+                            {rec.working_hours ? `${rec.working_hours.toFixed(2)}h` : "—"}
+                          </span>
+                        </td>
+                        <td className="table-cell">
+                          {rec.is_short_day ? (
+                            <span className="badge-rejected">Short Day</span>
+                          ) : rec.clock_out ? (
                             <span className="badge-approved">Completed</span>
                           ) : (
                             <span className="badge-pending">Active</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* Permissions Tab */}
+        {activeTab === "permissions" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Permission Requests</h1>
+              <p className="text-gray-500 mt-1">Review and manage permission applications (2 hours/month per employee, max 1 hour per use)</p>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className="table-header">Employee</th>
+                    <th className="table-header">Duration</th>
+                    <th className="table-header">Date</th>
+                    <th className="table-header">Reason</th>
+                    <th className="table-header">Status</th>
+                    <th className="table-header">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {permissionRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="text-center py-8 text-gray-500">No permission requests</td>
+                    </tr>
+                  ) : (
+                    permissionRequests.map((perm) => (
+                      <tr key={perm.id} className="table-row">
+                        <td className="table-cell">
+                          <p className="font-medium text-gray-900">{perm.user_name}</p>
+                          <p className="text-xs text-gray-500">{perm.user_email}</p>
+                        </td>
+                        <td className="table-cell">{perm.duration_minutes} min</td>
+                        <td className="table-cell">{format(new Date(perm.date), "MMM d, yyyy")}</td>
+                        <td className="table-cell max-w-xs truncate">{perm.reason}</td>
+                        <td className="table-cell">{getStatusBadge(perm.status)}</td>
+                        <td className="table-cell">
+                          {perm.status === "pending" && (
+                            <div className="flex items-center gap-2">
+                              <Button
+                                data-testid={`approve-permission-${perm.id}`}
+                                size="sm"
+                                onClick={() => handlePermissionAction(perm.id, "approve")}
+                                className="bg-[#00C853] hover:bg-[#00A844] text-white h-8 px-3"
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                data-testid={`reject-permission-${perm.id}`}
+                                size="sm"
+                                onClick={() => handlePermissionAction(perm.id, "reject")}
+                                className="bg-[#FF2E00] hover:bg-[#CC2500] text-white h-8 px-3"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                          {perm.status !== "pending" && perm.reviewed_by && (
+                            <p className="text-xs text-gray-500">by {perm.reviewed_by}</p>
                           )}
                         </td>
                       </tr>

@@ -97,6 +97,14 @@ employees_router = APIRouter(prefix="/employees")
 attendance_router = APIRouter(prefix="/attendance")
 leave_router = APIRouter(prefix="/leave")
 admin_router = APIRouter(prefix="/admin")
+permission_router = APIRouter(prefix="/permission")
+
+# Constants for working hours
+REQUIRED_WORK_HOURS = 8.0  # Minimum 8 hours
+TOTAL_WORK_HOURS = 8.5  # 8:30 hours total
+MONTHLY_PERMISSION_HOURS = 2  # 2 hours per month
+MAX_PERMISSION_PER_USE = 1  # Max 1 hour per permission
+SHORT_DAYS_FOR_HALF_LEAVE = 3  # 3 short days = 1 half day leave
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -146,6 +154,12 @@ class EmployeeUpdate(BaseModel):
     casual_leave: Optional[int] = None
     sick_leave: Optional[int] = None
     earned_leave: Optional[int] = None
+    permission_hours: Optional[float] = None
+
+class PermissionRequest(BaseModel):
+    duration_minutes: int  # 60 for 1 hour
+    reason: str
+    date: str  # YYYY-MM-DD
 
 # Auth Routes
 @auth_router.post("/register")
@@ -173,7 +187,9 @@ async def register(user_data: UserRegister, response: Response):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "casual_leave": 12,
         "sick_leave": 6,
-        "earned_leave": 15
+        "earned_leave": 15,
+        "permission_hours": MONTHLY_PERMISSION_HOURS,
+        "half_day_leave": 0
     }
     
     result = await db.users.insert_one(user_doc)
@@ -279,11 +295,13 @@ async def clock_out(request: Request):
     if not attendance:
         raise HTTPException(status_code=400, detail="Not clocked in")
     
+    clock_out_time = datetime.now(timezone.utc)
+    
     # End any active break
     breaks = attendance.get("breaks", [])
     for brk in breaks:
         if brk.get("end") is None:
-            brk["end"] = datetime.now(timezone.utc).isoformat()
+            brk["end"] = clock_out_time.isoformat()
     
     # Calculate total break minutes
     total_break = 0
@@ -293,18 +311,62 @@ async def clock_out(request: Request):
             end = datetime.fromisoformat(brk["end"])
             total_break += (end - start).total_seconds() / 60
     
+    # Calculate total working hours
+    clock_in_time = datetime.fromisoformat(attendance["clock_in"])
+    total_time_minutes = (clock_out_time - clock_in_time).total_seconds() / 60
+    working_minutes = total_time_minutes - total_break
+    working_hours = working_minutes / 60
+    
+    # Check if it's a short day (less than 8 hours)
+    is_short_day = working_hours < REQUIRED_WORK_HOURS
+    
     await db.attendance.update_one(
         {"_id": attendance["_id"]},
         {"$set": {
-            "clock_out": datetime.now(timezone.utc).isoformat(),
+            "clock_out": clock_out_time.isoformat(),
             "breaks": breaks,
-            "total_break_minutes": int(total_break)
+            "total_break_minutes": int(total_break),
+            "working_hours": round(working_hours, 2),
+            "is_short_day": is_short_day
         }}
     )
+    
+    # If short day, check monthly short days and deduct half-day leave if needed
+    if is_short_day:
+        await check_and_deduct_half_day_leave(user["_id"])
     
     updated = await db.attendance.find_one({"_id": attendance["_id"]}, {"_id": 0})
     updated["id"] = str(attendance["_id"])
     return updated
+
+async def check_and_deduct_half_day_leave(user_id: str):
+    """Check if employee has 3 short days this month and deduct half-day leave"""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    # Count short days this month
+    short_days_count = await db.attendance.count_documents({
+        "user_id": user_id,
+        "is_short_day": True,
+        "date": {"$gte": month_start.strftime("%Y-%m-%d")}
+    })
+    
+    # For every 3 short days, deduct 0.5 from casual leave
+    if short_days_count > 0 and short_days_count % SHORT_DAYS_FOR_HALF_LEAVE == 0:
+        # Record the half-day deduction
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$inc": {"casual_leave": -0.5, "half_day_leave": 0.5}}
+        )
+        
+        # Log the deduction
+        await db.leave_deductions.insert_one({
+            "user_id": user_id,
+            "type": "half_day_short_work",
+            "amount": 0.5,
+            "reason": f"Auto-deducted for {SHORT_DAYS_FOR_HALF_LEAVE} short working days",
+            "date": now.isoformat()
+        })
 
 @attendance_router.post("/break/start")
 async def start_break(request: Request):
@@ -684,12 +746,211 @@ async def get_analytics(request: Request):
         "department_breakdown": [{"department": d["_id"], "count": d["count"]} for d in dept_breakdown]
     }
 
-# Include routers
+# Permission Routes
+@permission_router.get("/balance")
+async def get_permission_balance(request: Request):
+    user = await get_current_user(request)
+    user_doc = await db.users.find_one({"_id": ObjectId(user["_id"])})
+    
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    # Get used permissions this month
+    used_permissions = await db.permissions.find({
+        "user_id": user["_id"],
+        "date": {"$gte": month_start.strftime("%Y-%m-%d")},
+        "status": {"$in": ["approved", "pending"]}
+    }).to_list(100)
+    
+    used_minutes = sum(p.get("duration_minutes", 0) for p in used_permissions)
+    
+    return {
+        "monthly_allowance_hours": MONTHLY_PERMISSION_HOURS,
+        "used_minutes": used_minutes,
+        "used_hours": used_minutes / 60,
+        "remaining_minutes": (MONTHLY_PERMISSION_HOURS * 60) - used_minutes,
+        "remaining_hours": MONTHLY_PERMISSION_HOURS - (used_minutes / 60),
+        "max_per_use_minutes": MAX_PERMISSION_PER_USE * 60
+    }
+
+@permission_router.post("/request")
+async def request_permission(perm_data: PermissionRequest, request: Request):
+    user = await get_current_user(request)
+    
+    # Validate duration (max 1 hour per use)
+    if perm_data.duration_minutes > MAX_PERMISSION_PER_USE * 60:
+        raise HTTPException(status_code=400, detail=f"Maximum permission duration is {MAX_PERMISSION_PER_USE} hour(s)")
+    
+    if perm_data.duration_minutes <= 0:
+        raise HTTPException(status_code=400, detail="Invalid duration")
+    
+    # Check monthly balance
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    used_permissions = await db.permissions.find({
+        "user_id": user["_id"],
+        "date": {"$gte": month_start.strftime("%Y-%m-%d")},
+        "status": {"$in": ["approved", "pending"]}
+    }).to_list(100)
+    
+    used_minutes = sum(p.get("duration_minutes", 0) for p in used_permissions)
+    remaining_minutes = (MONTHLY_PERMISSION_HOURS * 60) - used_minutes
+    
+    if perm_data.duration_minutes > remaining_minutes:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient permission balance. Remaining: {remaining_minutes} minutes"
+        )
+    
+    perm_doc = {
+        "user_id": user["_id"],
+        "user_name": user["name"],
+        "user_email": user.get("email", ""),
+        "duration_minutes": perm_data.duration_minutes,
+        "reason": perm_data.reason,
+        "date": perm_data.date,
+        "status": "pending",
+        "created_at": now.isoformat(),
+        "reviewed_by": None,
+        "reviewed_at": None
+    }
+    
+    result = await db.permissions.insert_one(perm_doc)
+    perm_doc["id"] = str(result.inserted_id)
+    perm_doc.pop("_id", None)
+    
+    return perm_doc
+
+@permission_router.get("/my-requests")
+async def get_my_permissions(request: Request):
+    user = await get_current_user(request)
+    
+    permissions = await db.permissions.find(
+        {"user_id": user["_id"]}
+    ).sort("created_at", -1).to_list(100)
+    
+    result = []
+    for perm in permissions:
+        perm["id"] = str(perm["_id"])
+        del perm["_id"]
+        result.append(perm)
+    
+    return result
+
+@permission_router.delete("/{permission_id}")
+async def cancel_permission(permission_id: str, request: Request):
+    user = await get_current_user(request)
+    
+    perm = await db.permissions.find_one({"_id": ObjectId(permission_id)})
+    if not perm:
+        raise HTTPException(status_code=404, detail="Permission request not found")
+    
+    if perm["user_id"] != user["_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if perm["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Can only cancel pending requests")
+    
+    await db.permissions.delete_one({"_id": ObjectId(permission_id)})
+    return {"message": "Permission request cancelled"}
+
+# Admin Permission Routes
+@admin_router.get("/permissions")
+async def get_all_permissions(request: Request, status: Optional[str] = None):
+    await require_admin(request)
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    permissions = await db.permissions.find(query).sort("created_at", -1).to_list(1000)
+    
+    result = []
+    for perm in permissions:
+        perm["id"] = str(perm["_id"])
+        del perm["_id"]
+        result.append(perm)
+    
+    return result
+
+@admin_router.put("/permissions/{permission_id}")
+async def review_permission(permission_id: str, request: Request, action: str):
+    admin = await require_admin(request)
+    
+    if action not in ["approve", "reject"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    perm = await db.permissions.find_one({"_id": ObjectId(permission_id)})
+    if not perm:
+        raise HTTPException(status_code=404, detail="Permission request not found")
+    
+    if perm["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Permission already processed")
+    
+    new_status = "approved" if action == "approve" else "rejected"
+    
+    await db.permissions.update_one(
+        {"_id": ObjectId(permission_id)},
+        {"$set": {
+            "status": new_status,
+            "reviewed_by": admin["name"],
+            "reviewed_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"message": f"Permission request {new_status}"}
+
+# Working hours summary endpoint
+@attendance_router.get("/working-hours-summary")
+async def get_working_hours_summary(request: Request):
+    user = await get_current_user(request)
+    
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    # Get this month's attendance
+    attendance_records = await db.attendance.find({
+        "user_id": user["_id"],
+        "date": {"$gte": month_start.strftime("%Y-%m-%d")},
+        "clock_out": {"$ne": None}
+    }).to_list(100)
+    
+    total_working_hours = 0
+    short_days = 0
+    
+    for record in attendance_records:
+        hours = record.get("working_hours", 0)
+        total_working_hours += hours
+        if record.get("is_short_day", False):
+            short_days += 1
+    
+    # Get deductions
+    deductions = await db.leave_deductions.find({
+        "user_id": user["_id"],
+        "date": {"$gte": month_start.isoformat()}
+    }).to_list(100)
+    
+    total_deducted = sum(d.get("amount", 0) for d in deductions)
+    
+    return {
+        "total_working_days": len(attendance_records),
+        "total_working_hours": round(total_working_hours, 2),
+        "average_hours_per_day": round(total_working_hours / len(attendance_records), 2) if attendance_records else 0,
+        "short_days_count": short_days,
+        "half_days_deducted": total_deducted,
+        "required_hours_per_day": REQUIRED_WORK_HOURS,
+        "total_hours_per_day": TOTAL_WORK_HOURS,
+        "short_days_for_half_leave": SHORT_DAYS_FOR_HALF_LEAVE
+    }
+
+# Include routers (MUST be after all route definitions)
 api_router.include_router(auth_router)
 api_router.include_router(attendance_router)
 api_router.include_router(leave_router)
 api_router.include_router(admin_router)
 api_router.include_router(employees_router)
+api_router.include_router(permission_router)
 
 @api_router.get("/")
 async def root():
