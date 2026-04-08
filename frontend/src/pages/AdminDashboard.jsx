@@ -287,6 +287,7 @@ export default function AdminDashboard() {
                   <DialogHeader>
                     <DialogTitle className="font-['Outfit']">Add New Employee</DialogTitle>
                   </DialogHeader>
+                  <p className="text-sm text-gray-500 -mt-2">Enter the details for the new employee.</p>
                   <div className="space-y-4 pt-4">
                     <div className="space-y-2">
                       <Label>Full Name *</Label>
@@ -423,6 +424,7 @@ export default function AdminDashboard() {
                 <DialogHeader>
                   <DialogTitle className="font-['Outfit']">Edit Employee</DialogTitle>
                 </DialogHeader>
+                <p className="text-sm text-gray-500 -mt-2">Update employee information and leave balances.</p>
                 <div className="space-y-4 pt-4">
                   <div className="space-y-2">
                     <Label>Full Name</Label>

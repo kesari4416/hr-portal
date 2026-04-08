@@ -392,6 +392,7 @@ export default function EmployeeDashboard() {
                   <DialogHeader>
                     <DialogTitle className="font-['Outfit']">Request Leave</DialogTitle>
                   </DialogHeader>
+                  <p className="text-sm text-gray-500 -mt-2">Fill in the details below to submit a leave request.</p>
                   <div className="space-y-4 pt-4">
                     <div className="space-y-2">
                       <Label>Leave Type</Label>
