@@ -196,7 +196,7 @@ export default function AdminDashboard() {
       department: employee.department || "",
       position: employee.position || "",
       casual_leave: employee.casual_leave || 12,
-      sick_leave: employee.sick_leave || 12,
+      sick_leave: employee.sick_leave || 3,
       permission_hours: employee.permission_hours || 2
     });
     setEditEmployeeOpen(true);

@@ -257,7 +257,7 @@ async def register(user_data: UserRegister, response: Response):
         "avatar_url": avatar_urls[hash(email) % len(avatar_urls)],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "casual_leave": 12,
-        "sick_leave": 12,
+        "sick_leave": 3,
         "permission_hours": MONTHLY_PERMISSION_HOURS,
         "half_day_leave": 0,
         "loss_of_pay": 0
@@ -587,7 +587,7 @@ async def get_leave_balance(request: Request):
     
     return {
         "casual": user_doc.get("casual_leave", 12),
-        "sick": user_doc.get("sick_leave", 12),
+        "sick": user_doc.get("sick_leave", 3),
         "loss_of_pay": user_doc.get("loss_of_pay", 0)
     }
 
@@ -716,7 +716,7 @@ async def create_employee(user_data: UserRegister, request: Request):
         "avatar_url": avatar_urls[hash(email) % len(avatar_urls)],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "casual_leave": 12,
-        "sick_leave": 12,
+        "sick_leave": 3,
         "permission_hours": MONTHLY_PERMISSION_HOURS,
         "half_day_leave": 0,
         "loss_of_pay": 0,
@@ -1682,7 +1682,7 @@ async def startup():
             "avatar_url": "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "casual_leave": 12,
-            "sick_leave": 12,
+            "sick_leave": 3,
             "loss_of_pay": 0
         })
         logger.info(f"Admin user created: {admin_email}")
