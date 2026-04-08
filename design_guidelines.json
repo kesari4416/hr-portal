@@ -1,0 +1,178 @@
+{
+  "theme": {
+    "name": "Swiss & High-Contrast",
+    "archetype": "4 (Swiss & High-Contrast)",
+    "mode": "light",
+    "description": "An authoritative, clean, and function-first design language. Prioritizes clarity, strict grids, and high contrast for an elite HR Portal experience."
+  },
+  "typography": {
+    "fonts": {
+      "headings": {
+        "family": "'Outfit', sans-serif",
+        "weights": ["300", "500", "700"],
+        "import_url": "https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap"
+      },
+      "body": {
+        "family": "'Manrope', sans-serif",
+        "weights": ["400", "500", "600"],
+        "import_url": "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&display=swap"
+      },
+      "mono": {
+        "family": "'JetBrains Mono', monospace",
+        "weights": ["400", "500"],
+        "import_url": "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+      }
+    },
+    "hierarchy": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tight text-gray-900",
+      "h2": "text-2xl md:text-3xl font-bold tracking-tight text-gray-900",
+      "h3": "text-xl font-medium tracking-tight text-gray-800",
+      "h4": "text-lg font-medium tracking-tight text-gray-800",
+      "body": "text-base font-normal text-gray-600 leading-relaxed",
+      "small": "text-sm font-medium tracking-wide text-gray-500 uppercase",
+      "overline": "text-xs font-bold tracking-[0.2em] text-gray-400 uppercase"
+    }
+  },
+  "colors": {
+    "background": {
+      "page": "#F9FAFB",
+      "surface": "#FFFFFF",
+      "surface_hover": "#F3F4F6",
+      "overlay": "rgba(0, 0, 0, 0.5)"
+    },
+    "text": {
+      "primary": "#0A0F1A",
+      "secondary": "#4B5563",
+      "tertiary": "#9CA3AF",
+      "inverse": "#FFFFFF"
+    },
+    "border": {
+      "default": "#E5E7EB",
+      "focus": "#002FA7",
+      "active": "#D1D5DB"
+    },
+    "brand": {
+      "primary": "#002FA7",
+      "primary_hover": "#001F70",
+      "primary_light": "#E5ECFF"
+    },
+    "status": {
+      "success": "#00C853",
+      "success_bg": "#E6FFEE",
+      "warning": "#FFC107",
+      "warning_bg": "#FFF9E6",
+      "error": "#FF2E00",
+      "error_bg": "#FFEBE6",
+      "info": "#2563EB",
+      "info_bg": "#EFF6FF"
+    }
+  },
+  "spacing_and_layout": {
+    "grid_system": {
+      "type": "Control Room Grid",
+      "gap": "gap-6",
+      "dashboard_cols": "grid-cols-1 md:grid-cols-4 lg:grid-cols-12",
+      "widget_spans": {
+        "summary_card": "col-span-1 md:col-span-2 lg:col-span-3",
+        "main_chart": "col-span-1 md:col-span-4 lg:col-span-8",
+        "side_feed": "col-span-1 md:col-span-4 lg:col-span-4"
+      }
+    },
+    "padding": {
+      "container": "px-6 md:px-12 py-8",
+      "card": "p-6",
+      "table_cell": "px-4 py-3"
+    },
+    "surfaces": {
+      "style": "Grid Borders (The Technical Look)",
+      "border_radius": "rounded-sm",
+      "border_width": "border",
+      "shadow": "shadow-none",
+      "hover_effect": "hover:border-gray-300 hover:bg-gray-50 transition-colors duration-200"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#002FA7] text-white hover:bg-[#001F70] rounded-sm px-6 py-2.5 font-medium transition-all focus:ring-2 focus:ring-[#002FA7] focus:ring-offset-2",
+      "secondary": "bg-white text-gray-900 border border-gray-200 hover:border-gray-300 hover:bg-gray-50 rounded-sm px-6 py-2.5 font-medium transition-all",
+      "clock_in": "bg-[#002FA7] text-white hover:bg-[#001F70] rounded-sm px-8 py-4 text-lg font-bold w-full shadow-[0_4px_0_0_#00154D] active:translate-y-1 active:shadow-none transition-all",
+      "clock_out": "bg-[#FF2E00] text-white hover:bg-[#CC2500] rounded-sm px-8 py-4 text-lg font-bold w-full shadow-[0_4px_0_0_#991C00] active:translate-y-1 active:shadow-none transition-all",
+      "break": "bg-[#FFC107] text-black hover:bg-[#E6AE06] rounded-sm px-6 py-3 font-bold w-full transition-all"
+    },
+    "cards": {
+      "default": "bg-white border border-gray-200 rounded-sm p-6 flex flex-col gap-4",
+      "metric": "bg-white border-l-4 border-l-[#002FA7] border-y border-r border-gray-200 p-5 rounded-sm"
+    },
+    "inputs": {
+      "default": "bg-white border border-gray-300 rounded-sm px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#002FA7] focus:border-transparent transition-all placeholder-gray-400"
+    },
+    "tables": {
+      "container": "border border-gray-200 rounded-sm overflow-hidden bg-white",
+      "header": "bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider text-left px-4 py-3",
+      "row": "border-b border-gray-100 hover:bg-gray-50 transition-colors",
+      "cell": "px-4 py-3 text-sm text-gray-900"
+    },
+    "badges": {
+      "approved": "bg-[#E6FFEE] text-[#00C853] px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider",
+      "pending": "bg-[#FFF9E6] text-[#D4A000] px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider",
+      "rejected": "bg-[#FFEBE6] text-[#FF2E00] px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider"
+    },
+    "navigation": {
+      "sidebar": "w-64 bg-white border-r border-gray-200 h-screen flex flex-col",
+      "nav_item": "flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-sm font-medium transition-colors",
+      "nav_item_active": "flex items-center gap-3 px-4 py-3 bg-[#E5ECFF] text-[#002FA7] font-bold border-r-4 border-[#002FA7] rounded-sm"
+    }
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "duotone",
+    "size": "20px",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "media": {
+    "images": {
+      "logo": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/aaf63ca7-adc6-4c7b-937b-09773c3509ed/images/f54676851e2ae99a51a94037909cd1cec0feddb104a3fbd9c71931cef8478ad0.png",
+        "description": "Minimalist corporate geometric H logo in electric blue",
+        "placement": "Top left of sidebar, Login page header"
+      },
+      "login_background": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/aaf63ca7-adc6-4c7b-937b-09773c3509ed/images/01c38731262f23f3af4df465ed570f1df44134feaedb2624f68b8cd4d431398f.png",
+        "description": "Swiss brutalist abstract corporate background",
+        "placement": "Right side of the split login screen (hidden on mobile)"
+      },
+      "employee_avatars": [
+        {
+          "url": "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85",
+          "description": "Professional male headshot"
+        },
+        {
+          "url": "https://images.pexels.com/photos/14589344/pexels-photo-14589344.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Young male in suit"
+        },
+        {
+          "url": "https://images.pexels.com/photos/36645466/pexels-photo-36645466.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Businessman smiling"
+        }
+      ]
+    }
+  },
+  "instructions_to_main_agent": {
+    "core_rules": [
+      "Strictly enforce the Swiss Brutalist grid layout. Elements must align perfectly. No floating abstract blobs in the dashboard.",
+      "Use explicit 1px borders (border-gray-200) for separation instead of soft shadows. Remove all Shadcn default shadows.",
+      "Never use Inter for headings. Ensure Outfit and Manrope are imported in the root CSS/HTML.",
+      "Use pure HTML+Tailwind for complex grids. Use heavily modified Shadcn components for forms, tables, and dialogues.",
+      "Implement the 'Traffic Light' protocol strictly: Green ONLY for success/approved, Red ONLY for error/rejected/clock-out, Yellow ONLY for warning/pending/break.",
+      "Provide accessible hover states for all interactive elements (e.g., table rows, buttons, nav items). Ensure focus rings are prominent (focus:ring-[#002FA7]).",
+      "Do not use generic placeholders (e.g., 'User Avatar'). Use the provided unsplash/pexels images for avatars in the mock data.",
+      "Ensure the login page is a 50/50 split layout on desktop: Left side stark white with the login form, Right side featuring the provided 'login_background' image.",
+      "Include 'data-testid' on ALL interactive elements (e.g., data-testid='clock-in-btn', data-testid='leave-request-submit')."
+    ],
+    "features_required": [
+      "Employee Flow: Dashboard with large Clock In/Out/Break widget, Leave Balance summary cards, Leave Request Form (Dialog or dedicated page), Attendance History Table.",
+      "Admin Flow: Dashboard with overall headcount/attendance metrics, Leave Request Approval Queue (Table with Accept/Reject buttons), Complete Employee Roster.",
+      "Shared: JWT Authentication (Login page with role routing)."
+    ]
+  }
+}
