@@ -10,7 +10,7 @@ import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls
+  ClockClockwise, FileXls, Key
 } from "@phosphor-icons/react";
 
 const SHIFTS = {
@@ -36,6 +36,8 @@ export default function AdminDashboard() {
   const [generatePayslipOpen, setGeneratePayslipOpen] = useState(false);
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [salaryAmount, setSalaryAmount] = useState("");
   const [selectedShift, setSelectedShift] = useState("general");
@@ -139,6 +141,29 @@ export default function AdminDashboard() {
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete employee");
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!selectedEmployee || !resetPasswordValue) {
+      toast.error("Please enter a new password");
+      return;
+    }
+    if (resetPasswordValue.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post(`/admin/employees/${selectedEmployee.id}/reset-password`, { new_password: resetPasswordValue });
+      toast.success(`Password reset for ${selectedEmployee.name}`);
+      setResetPasswordOpen(false);
+      setResetPasswordValue("");
+      setSelectedEmployee(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to reset password");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -626,6 +651,20 @@ export default function AdminDashboard() {
                               >
                                 <CurrencyDollar className="h-4 w-4" />
                               </Button>
+                              <Button
+                                data-testid={`reset-password-${emp.id}`}
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedEmployee(emp);
+                                  setResetPasswordValue("");
+                                  setResetPasswordOpen(true);
+                                }}
+                                className="text-gray-500 hover:text-orange-500"
+                                title="Reset Password"
+                              >
+                                <Key className="h-4 w-4" />
+                              </Button>
                             </>
                           )}
                           <Button
@@ -802,6 +841,41 @@ export default function AdminDashboard() {
                     className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
                   >
                     {selectedEmployee?.shift ? "Change Shift" : "Assign Shift"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* Reset Password Dialog */}
+            <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit'] flex items-center gap-2">
+                    <Key className="h-5 w-5 text-orange-500" weight="duotone" />
+                    Reset Password
+                  </DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-gray-500 -mt-2">
+                  Set a new password for <strong>{selectedEmployee?.name}</strong>
+                </p>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label>New Password</Label>
+                    <Input
+                      data-testid="reset-password-input"
+                      type="password"
+                      placeholder="Enter new password (min 6 chars)"
+                      value={resetPasswordValue}
+                      onChange={(e) => setResetPasswordValue(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    data-testid="reset-password-submit-btn"
+                    onClick={handleResetPassword}
+                    disabled={loading}
+                    className="w-full bg-orange-500 text-white hover:bg-orange-600"
+                  >
+                    Reset Password
                   </Button>
                 </div>
               </DialogContent>

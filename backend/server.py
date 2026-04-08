@@ -17,7 +17,6 @@ import bcrypt
 import jwt
 import secrets
 import io
-import aiohttp
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -25,7 +24,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.units import inch
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import msal
+
 
 ROOT_DIR = Path(__file__).parent
 
@@ -128,12 +127,6 @@ SHIFTS = {
     "afternoon": {"name": "Afternoon Shift", "start": "12:00", "end": "20:00"},
     "night": {"name": "Night Shift", "start": "20:00", "end": "04:00"}
 }
-
-# Microsoft OAuth Config (optional - only if configured)
-MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
-MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
-MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "")
-MICROSOFT_REDIRECT_URI = os.environ.get("MICROSOFT_REDIRECT_URI", "")
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -673,7 +666,10 @@ async def create_employee(user_data: UserRegister, request: Request):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "casual_leave": 12,
         "sick_leave": 6,
-        "earned_leave": 15
+        "earned_leave": 15,
+        "permission_hours": MONTHLY_PERMISSION_HOURS,
+        "half_day_leave": 0,
+        "shift": ""
     }
     
     result = await db.users.insert_one(user_doc)
@@ -714,6 +710,27 @@ async def delete_employee(employee_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Employee not found")
     
     return {"message": "Employee deleted"}
+
+class PasswordReset(BaseModel):
+    new_password: str
+
+@admin_router.post("/employees/{employee_id}/reset-password")
+async def reset_employee_password(employee_id: str, data: PasswordReset, request: Request):
+    await require_admin(request)
+    
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    hashed = hash_password(data.new_password)
+    result = await db.users.update_one(
+        {"_id": ObjectId(employee_id), "role": "employee"},
+        {"$set": {"password_hash": hashed}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    return {"message": "Password reset successfully"}
 
 @admin_router.get("/leave-requests")
 async def get_all_leave_requests(request: Request, status: Optional[str] = None):
@@ -1395,120 +1412,6 @@ async def get_my_shift(request: Request):
         "start_time": shift_info["start"],
         "end_time": shift_info["end"]
     }
-
-# Microsoft OAuth Routes
-@auth_router.get("/microsoft/login")
-async def microsoft_login():
-    """Initiate Microsoft OAuth login"""
-    if not MICROSOFT_CLIENT_ID or not MICROSOFT_TENANT_ID:
-        raise HTTPException(status_code=400, detail="Microsoft login not configured")
-    
-    authority = f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}"
-    app = msal.ConfidentialClientApplication(
-        MICROSOFT_CLIENT_ID,
-        authority=authority,
-        client_credential=MICROSOFT_CLIENT_SECRET
-    )
-    
-    auth_url = app.get_authorization_request_url(
-        scopes=["User.Read"],
-        redirect_uri=MICROSOFT_REDIRECT_URI
-    )
-    
-    return {"auth_url": auth_url}
-
-@auth_router.get("/microsoft/callback")
-async def microsoft_callback(code: str, response: Response):
-    """Handle Microsoft OAuth callback"""
-    if not MICROSOFT_CLIENT_ID or not MICROSOFT_TENANT_ID:
-        raise HTTPException(status_code=400, detail="Microsoft login not configured")
-    
-    authority = f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}"
-    app = msal.ConfidentialClientApplication(
-        MICROSOFT_CLIENT_ID,
-        authority=authority,
-        client_credential=MICROSOFT_CLIENT_SECRET
-    )
-    
-    result = app.acquire_token_by_authorization_code(
-        code,
-        scopes=["User.Read"],
-        redirect_uri=MICROSOFT_REDIRECT_URI
-    )
-    
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result.get("error_description", "Authentication failed"))
-    
-    # Get user info from Microsoft Graph
-    access_token = result["access_token"]
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            "https://graph.microsoft.com/v1.0/me",
-            headers={"Authorization": f"Bearer {access_token}"}
-        ) as resp:
-            if resp.status != 200:
-                raise HTTPException(status_code=400, detail="Failed to get user info")
-            ms_user = await resp.json()
-    
-    email = ms_user.get("mail") or ms_user.get("userPrincipalName", "").lower()
-    name = ms_user.get("displayName", email.split("@")[0])
-    
-    # Find or create user
-    user = await db.users.find_one({"email": email})
-    
-    if not user:
-        # Create new user from Microsoft account
-        avatar_urls = [
-            "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg",
-            "https://images.pexels.com/photos/14589344/pexels-photo-14589344.jpeg",
-        ]
-        
-        user_doc = {
-            "email": email,
-            "password_hash": "",  # No password for Microsoft users
-            "name": name,
-            "role": "employee",
-            "department": "General",
-            "position": "Employee",
-            "avatar_url": avatar_urls[hash(email) % len(avatar_urls)],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "casual_leave": 12,
-            "sick_leave": 6,
-            "earned_leave": 15,
-            "permission_hours": MONTHLY_PERMISSION_HOURS,
-            "half_day_leave": 0,
-            "microsoft_id": ms_user.get("id"),
-            "shift": ""
-        }
-        
-        result = await db.users.insert_one(user_doc)
-        user_id = str(result.inserted_id)
-        user_role = "employee"
-    else:
-        user_id = str(user["_id"])
-        user_role = user["role"]
-        # Update Microsoft ID if not set
-        if not user.get("microsoft_id"):
-            await db.users.update_one(
-                {"_id": user["_id"]},
-                {"$set": {"microsoft_id": ms_user.get("id")}}
-            )
-    
-    # Create tokens
-    access_token = create_access_token(user_id, email, user_role)
-    refresh_token = create_refresh_token(user_id)
-    
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
-    
-    # Redirect to frontend
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-    return {"redirect_url": f"{frontend_url}/dashboard", "user_id": user_id}
-
-@auth_router.get("/microsoft/status")
-async def microsoft_status():
-    """Check if Microsoft login is configured"""
-    return {"configured": bool(MICROSOFT_CLIENT_ID and MICROSOFT_TENANT_ID)}
 
 # Password Reset Info Route
 @auth_router.get("/password-reset-info")
