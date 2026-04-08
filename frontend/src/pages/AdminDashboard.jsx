@@ -5,12 +5,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "../components/ui/label";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
-  SignOut, Users, CalendarCheck, ChartBar, Clock, House, 
-  UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple
+  SignOut, Users, CalendarCheck, Clock, House, 
+  UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
+  ClockClockwise, FileXls, Envelope
 } from "@phosphor-icons/react";
+
+const SHIFTS = {
+  general: { name: "General Shift", start: "09:30", end: "17:30" },
+  morning: { name: "Morning Shift", start: "04:00", end: "12:00" },
+  afternoon: { name: "Afternoon Shift", start: "12:00", end: "20:00" },
+  night: { name: "Night Shift", start: "20:00", end: "04:00" }
+};
 
 export default function AdminDashboard() {
   const { user, logout, api } = useAuth();
@@ -26,12 +35,21 @@ export default function AdminDashboard() {
   const [editEmployeeOpen, setEditEmployeeOpen] = useState(false);
   const [salaryDialogOpen, setSalaryDialogOpen] = useState(false);
   const [generatePayslipOpen, setGeneratePayslipOpen] = useState(false);
+  const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [salaryAmount, setSalaryAmount] = useState("");
+  const [selectedShift, setSelectedShift] = useState("general");
   const [payslipForm, setPayslipForm] = useState({
     employee_id: "",
     month: new Date().getMonth() + 1,
-    year: new Date().getFullYear()
+    year: new Date().getFullYear(),
+    send_email: false
+  });
+  const [exportForm, setExportForm] = useState({
+    start_date: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"),
+    end_date: format(new Date(), "yyyy-MM-dd"),
+    employee_id: ""
   });
 
   const [newEmployee, setNewEmployee] = useState({
@@ -200,13 +218,20 @@ export default function AdminDashboard() {
 
     setLoading(true);
     try {
-      await api.post("/admin/payslip/generate", payslipForm);
-      toast.success("Payslip generated successfully!");
+      const result = await api.post("/admin/payslip/generate", payslipForm);
+      if (payslipForm.send_email && result.data.email_sent) {
+        toast.success("Payslip generated and emailed successfully!");
+      } else if (payslipForm.send_email && !result.data.email_sent) {
+        toast.success("Payslip generated! (Email not configured)");
+      } else {
+        toast.success("Payslip generated successfully!");
+      }
       setGeneratePayslipOpen(false);
       setPayslipForm({
         employee_id: "",
         month: new Date().getMonth() + 1,
-        year: new Date().getFullYear()
+        year: new Date().getFullYear(),
+        send_email: false
       });
       fetchData();
     } catch (error) {
@@ -214,6 +239,65 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAssignShift = async () => {
+    if (!selectedEmployee) return;
+
+    setLoading(true);
+    try {
+      const endpoint = selectedEmployee.shift 
+        ? `/admin/employees/${selectedEmployee.id}/shift/change`
+        : `/admin/employees/${selectedEmployee.id}/shift`;
+      
+      await api.put(endpoint, { shift: selectedShift });
+      toast.success("Shift assigned successfully!");
+      setShiftDialogOpen(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to assign shift");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportAttendance = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        start_date: exportForm.start_date,
+        end_date: exportForm.end_date
+      });
+      if (exportForm.employee_id) {
+        params.append("employee_id", exportForm.employee_id);
+      }
+
+      const response = await api.get(`/reports/attendance/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `attendance_report_${exportForm.start_date}_to_${exportForm.end_date}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Attendance report exported!");
+      setExportDialogOpen(false);
+    } catch (error) {
+      toast.error("Failed to export attendance report");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openShiftModal = (employee) => {
+    setSelectedEmployee(employee);
+    setSelectedShift(employee.shift || "general");
+    setShiftDialogOpen(true);
   };
 
   const handleDownloadPayslip = async (payslipId) => {
@@ -481,7 +565,7 @@ export default function AdminDashboard() {
                   <tr>
                     <th className="table-header">Employee</th>
                     <th className="table-header">Department</th>
-                    <th className="table-header">Position</th>
+                    <th className="table-header">Shift</th>
                     <th className="table-header">Salary</th>
                     <th className="table-header">Role</th>
                     <th className="table-header">Actions</th>
@@ -504,7 +588,15 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td className="table-cell">{emp.department || "—"}</td>
-                      <td className="table-cell">{emp.position || "—"}</td>
+                      <td className="table-cell">
+                        {emp.shift && SHIFTS[emp.shift] ? (
+                          <span className="text-xs px-2 py-1 bg-[#E5ECFF] text-[#002FA7] rounded-full font-medium">
+                            {SHIFTS[emp.shift].name}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">Not assigned</span>
+                        )}
+                      </td>
                       <td className="table-cell">
                         {emp.basic_salary ? (
                           <span className="text-[#00C853] font-medium">₹{emp.basic_salary.toLocaleString()}</span>
@@ -522,16 +614,28 @@ export default function AdminDashboard() {
                       <td className="table-cell">
                         <div className="flex items-center gap-2">
                           {emp.role !== "admin" && (
-                            <Button
-                              data-testid={`set-salary-${emp.id}`}
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openSalaryModal(emp)}
-                              className="text-gray-500 hover:text-[#00C853]"
-                              title="Set Salary"
-                            >
-                              <CurrencyDollar className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                data-testid={`set-shift-${emp.id}`}
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openShiftModal(emp)}
+                                className="text-gray-500 hover:text-[#002FA7]"
+                                title="Assign Shift"
+                              >
+                                <ClockClockwise className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                data-testid={`set-salary-${emp.id}`}
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openSalaryModal(emp)}
+                                className="text-gray-500 hover:text-[#00C853]"
+                                title="Set Salary"
+                              >
+                                <CurrencyDollar className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                           <Button
                             data-testid={`edit-employee-${emp.id}`}
@@ -667,6 +771,50 @@ export default function AdminDashboard() {
                 </div>
               </DialogContent>
             </Dialog>
+
+            {/* Shift Assignment Dialog */}
+            <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit']">Assign Shift</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-gray-500 -mt-2">
+                  {selectedEmployee?.shift 
+                    ? `Change shift for ${selectedEmployee?.name} (currently: ${SHIFTS[selectedEmployee?.shift]?.name})`
+                    : `Assign shift to ${selectedEmployee?.name}`}
+                </p>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label>Select Shift</Label>
+                    <Select value={selectedShift} onValueChange={setSelectedShift}>
+                      <SelectTrigger data-testid="shift-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(SHIFTS).map(([key, value]) => (
+                          <SelectItem key={key} value={key}>
+                            {value.name} ({value.start} - {value.end})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {selectedEmployee?.shift && (
+                    <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                      Note: Changing shift requires admin override.
+                    </p>
+                  )}
+                  <Button
+                    data-testid="assign-shift-btn"
+                    onClick={handleAssignShift}
+                    disabled={loading}
+                    className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                  >
+                    {selectedEmployee?.shift ? "Change Shift" : "Assign Shift"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </>
         )}
 
@@ -737,13 +885,26 @@ export default function AdminDashboard() {
                         />
                       </div>
                     </div>
+                    <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-sm">
+                      <Checkbox
+                        id="send-email"
+                        checked={payslipForm.send_email}
+                        onCheckedChange={(checked) => setPayslipForm({ ...payslipForm, send_email: checked })}
+                      />
+                      <div className="flex items-center gap-2">
+                        <Envelope className="h-4 w-4 text-gray-500" />
+                        <Label htmlFor="send-email" className="text-sm cursor-pointer">
+                          Send payslip via email
+                        </Label>
+                      </div>
+                    </div>
                     <Button
                       data-testid="submit-generate-payslip"
                       onClick={handleGeneratePayslip}
                       disabled={loading}
                       className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
                     >
-                      Generate Payslip
+                      {payslipForm.send_email ? "Generate & Email Payslip" : "Generate Payslip"}
                     </Button>
                   </div>
                 </DialogContent>
@@ -885,9 +1046,73 @@ export default function AdminDashboard() {
         {/* Attendance Tab */}
         {activeTab === "attendance" && (
           <>
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Attendance Records</h1>
-              <p className="text-gray-500 mt-1">View employee attendance history</p>
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Attendance Records</h1>
+                <p className="text-gray-500 mt-1">View employee attendance history</p>
+              </div>
+              <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button data-testid="export-attendance-btn" className="bg-[#00C853] text-white hover:bg-[#00A844] gap-2">
+                    <FileXls className="h-4 w-4" weight="bold" />
+                    Export to Excel
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="font-['Outfit']">Export Attendance Report</DialogTitle>
+                  </DialogHeader>
+                  <p className="text-sm text-gray-500 -mt-2">Select date range and employee to export.</p>
+                  <div className="space-y-4 pt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Start Date</Label>
+                        <Input
+                          data-testid="export-start-date"
+                          type="date"
+                          value={exportForm.start_date}
+                          onChange={(e) => setExportForm({ ...exportForm, start_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>End Date</Label>
+                        <Input
+                          data-testid="export-end-date"
+                          type="date"
+                          value={exportForm.end_date}
+                          onChange={(e) => setExportForm({ ...exportForm, end_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Employee (optional)</Label>
+                      <Select
+                        value={exportForm.employee_id}
+                        onValueChange={(value) => setExportForm({ ...exportForm, employee_id: value })}
+                      >
+                        <SelectTrigger data-testid="export-employee-select">
+                          <SelectValue placeholder="All employees" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">All employees</SelectItem>
+                          {employees.filter(e => e.role !== "admin").map((emp) => (
+                            <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      data-testid="download-export-btn"
+                      onClick={handleExportAttendance}
+                      disabled={loading}
+                      className="w-full bg-[#00C853] text-white hover:bg-[#00A844] gap-2"
+                    >
+                      <DownloadSimple className="h-4 w-4" />
+                      Download Excel Report
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
 
             <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">

@@ -17,11 +17,19 @@ import bcrypt
 import jwt
 import secrets
 import io
+import aiohttp
+import aiosmtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.units import inch
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import msal
 
 ROOT_DIR = Path(__file__).parent
 
@@ -106,6 +114,7 @@ leave_router = APIRouter(prefix="/leave")
 admin_router = APIRouter(prefix="/admin")
 permission_router = APIRouter(prefix="/permission")
 payslip_router = APIRouter(prefix="/payslip")
+reports_router = APIRouter(prefix="/reports")
 
 # Constants for working hours
 REQUIRED_WORK_HOURS = 8.0  # Minimum 8 hours
@@ -115,6 +124,26 @@ MAX_PERMISSION_PER_USE = 1  # Max 1 hour per permission
 SHORT_DAYS_FOR_HALF_LEAVE = 3  # 3 short days = 1 half day leave
 MAX_BREAK_MINUTES = 30  # Maximum 30 minutes break per day
 WORKING_DAYS_PER_MONTH = 22  # Average working days
+
+# Shift Definitions
+SHIFTS = {
+    "general": {"name": "General Shift", "start": "09:30", "end": "17:30"},
+    "morning": {"name": "Morning Shift", "start": "04:00", "end": "12:00"},
+    "afternoon": {"name": "Afternoon Shift", "start": "12:00", "end": "20:00"},
+    "night": {"name": "Night Shift", "start": "20:00", "end": "04:00"}
+}
+
+# Microsoft OAuth Config (optional - only if configured)
+MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
+MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
+MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "")
+MICROSOFT_REDIRECT_URI = os.environ.get("MICROSOFT_REDIRECT_URI", "")
+
+# Email Config (Gmail SMTP)
+SMTP_EMAIL = os.environ.get("SMTP_EMAIL", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")  # App Password for Gmail
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -165,6 +194,7 @@ class EmployeeUpdate(BaseModel):
     sick_leave: Optional[int] = None
     earned_leave: Optional[int] = None
     permission_hours: Optional[float] = None
+    shift: Optional[str] = None
 
 class PermissionRequest(BaseModel):
     duration_minutes: int  # 60 for 1 hour
@@ -178,6 +208,67 @@ class PayslipGenerate(BaseModel):
     employee_id: str
     month: int  # 1-12
     year: int
+    send_email: Optional[bool] = False
+
+class ShiftAssign(BaseModel):
+    shift: str  # general, morning, afternoon, night
+
+class AttendanceReportRequest(BaseModel):
+    start_date: str
+    end_date: str
+    employee_id: Optional[str] = None  # None means all employees
+
+# Email utility function
+async def send_payslip_email(employee_email: str, employee_name: str, payslip: dict, pdf_buffer: io.BytesIO):
+    """Send payslip PDF via email"""
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        logger.warning("Email not configured, skipping email send")
+        return False
+    
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_EMAIL
+        msg['To'] = employee_email
+        msg['Subject'] = f"Payslip for {payslip['month_name']} {payslip['year']} - HR Portal"
+        
+        body = f"""
+Dear {employee_name},
+
+Your payslip for {payslip['month_name']} {payslip['year']} is now available.
+
+Summary:
+- Basic Salary: ₹{payslip['basic_salary']:,.2f}
+- Total Deductions: ₹{payslip['total_deductions']:,.2f}
+- Net Pay: ₹{payslip['net_pay']:,.2f}
+
+Please find the detailed payslip attached as PDF.
+
+Best regards,
+HR Portal Team
+        """
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attach PDF
+        pdf_buffer.seek(0)
+        pdf_attachment = MIMEApplication(pdf_buffer.read(), _subtype='pdf')
+        pdf_attachment.add_header('Content-Disposition', 'attachment', filename=f'payslip_{payslip["month_name"]}_{payslip["year"]}.pdf')
+        msg.attach(pdf_attachment)
+        
+        # Send email
+        await aiosmtplib.send(
+            msg,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_EMAIL,
+            password=SMTP_PASSWORD,
+            start_tls=True
+        )
+        
+        logger.info(f"Payslip email sent to {employee_email}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        return False
 
 # Auth Routes
 @auth_router.post("/register")
@@ -1272,6 +1363,18 @@ async def generate_payslip(data: PayslipGenerate, request: Request):
     payslip_doc["id"] = str(result.inserted_id)
     payslip_doc.pop("_id", None)
     
+    # Send email if requested
+    email_sent = False
+    if data.send_email and employee.get("email"):
+        pdf_buffer = generate_payslip_pdf(payslip_doc)
+        email_sent = await send_payslip_email(
+            employee["email"],
+            employee["name"],
+            payslip_doc,
+            pdf_buffer
+        )
+    
+    payslip_doc["email_sent"] = email_sent
     return payslip_doc
 
 @admin_router.get("/payslips")
@@ -1304,6 +1407,297 @@ async def delete_payslip(payslip_id: str, request: Request):
     
     return {"message": "Payslip deleted"}
 
+# Shift Routes
+@admin_router.get("/shifts")
+async def get_shifts(request: Request):
+    """Get all available shifts"""
+    await require_admin(request)
+    return SHIFTS
+
+@admin_router.put("/employees/{employee_id}/shift")
+async def assign_shift(employee_id: str, shift_data: ShiftAssign, request: Request):
+    """Assign shift to an employee (admin only, fixed once assigned)"""
+    await require_admin(request)
+    
+    if shift_data.shift not in SHIFTS:
+        raise HTTPException(status_code=400, detail=f"Invalid shift. Available: {list(SHIFTS.keys())}")
+    
+    employee = await db.users.find_one({"_id": ObjectId(employee_id)})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    if employee.get("shift") and employee.get("shift") != "":
+        raise HTTPException(status_code=400, detail="Shift already assigned and cannot be changed. Contact HR for shift changes.")
+    
+    await db.users.update_one(
+        {"_id": ObjectId(employee_id)},
+        {"$set": {"shift": shift_data.shift}}
+    )
+    
+    return {"message": f"Shift '{SHIFTS[shift_data.shift]['name']}' assigned successfully"}
+
+@admin_router.put("/employees/{employee_id}/shift/change")
+async def change_shift(employee_id: str, shift_data: ShiftAssign, request: Request):
+    """Change employee shift (admin override)"""
+    await require_admin(request)
+    
+    if shift_data.shift not in SHIFTS:
+        raise HTTPException(status_code=400, detail=f"Invalid shift. Available: {list(SHIFTS.keys())}")
+    
+    result = await db.users.update_one(
+        {"_id": ObjectId(employee_id)},
+        {"$set": {"shift": shift_data.shift}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    return {"message": f"Shift changed to '{SHIFTS[shift_data.shift]['name']}'"}
+
+# Employee shift view
+@attendance_router.get("/my-shift")
+async def get_my_shift(request: Request):
+    """Get current user's shift details"""
+    user = await get_current_user(request)
+    user_doc = await db.users.find_one({"_id": ObjectId(user["_id"])})
+    
+    shift_key = user_doc.get("shift", "general")
+    shift_info = SHIFTS.get(shift_key, SHIFTS["general"])
+    
+    return {
+        "shift": shift_key,
+        "name": shift_info["name"],
+        "start_time": shift_info["start"],
+        "end_time": shift_info["end"]
+    }
+
+# Microsoft OAuth Routes
+@auth_router.get("/microsoft/login")
+async def microsoft_login():
+    """Initiate Microsoft OAuth login"""
+    if not MICROSOFT_CLIENT_ID or not MICROSOFT_TENANT_ID:
+        raise HTTPException(status_code=400, detail="Microsoft login not configured")
+    
+    authority = f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}"
+    app = msal.ConfidentialClientApplication(
+        MICROSOFT_CLIENT_ID,
+        authority=authority,
+        client_credential=MICROSOFT_CLIENT_SECRET
+    )
+    
+    auth_url = app.get_authorization_request_url(
+        scopes=["User.Read"],
+        redirect_uri=MICROSOFT_REDIRECT_URI
+    )
+    
+    return {"auth_url": auth_url}
+
+@auth_router.get("/microsoft/callback")
+async def microsoft_callback(code: str, response: Response):
+    """Handle Microsoft OAuth callback"""
+    if not MICROSOFT_CLIENT_ID or not MICROSOFT_TENANT_ID:
+        raise HTTPException(status_code=400, detail="Microsoft login not configured")
+    
+    authority = f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}"
+    app = msal.ConfidentialClientApplication(
+        MICROSOFT_CLIENT_ID,
+        authority=authority,
+        client_credential=MICROSOFT_CLIENT_SECRET
+    )
+    
+    result = app.acquire_token_by_authorization_code(
+        code,
+        scopes=["User.Read"],
+        redirect_uri=MICROSOFT_REDIRECT_URI
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result.get("error_description", "Authentication failed"))
+    
+    # Get user info from Microsoft Graph
+    access_token = result["access_token"]
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://graph.microsoft.com/v1.0/me",
+            headers={"Authorization": f"Bearer {access_token}"}
+        ) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=400, detail="Failed to get user info")
+            ms_user = await resp.json()
+    
+    email = ms_user.get("mail") or ms_user.get("userPrincipalName", "").lower()
+    name = ms_user.get("displayName", email.split("@")[0])
+    
+    # Find or create user
+    user = await db.users.find_one({"email": email})
+    
+    if not user:
+        # Create new user from Microsoft account
+        avatar_urls = [
+            "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg",
+            "https://images.pexels.com/photos/14589344/pexels-photo-14589344.jpeg",
+        ]
+        
+        user_doc = {
+            "email": email,
+            "password_hash": "",  # No password for Microsoft users
+            "name": name,
+            "role": "employee",
+            "department": "General",
+            "position": "Employee",
+            "avatar_url": avatar_urls[hash(email) % len(avatar_urls)],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "casual_leave": 12,
+            "sick_leave": 6,
+            "earned_leave": 15,
+            "permission_hours": MONTHLY_PERMISSION_HOURS,
+            "half_day_leave": 0,
+            "microsoft_id": ms_user.get("id"),
+            "shift": ""
+        }
+        
+        result = await db.users.insert_one(user_doc)
+        user_id = str(result.inserted_id)
+        user_role = "employee"
+    else:
+        user_id = str(user["_id"])
+        user_role = user["role"]
+        # Update Microsoft ID if not set
+        if not user.get("microsoft_id"):
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"microsoft_id": ms_user.get("id")}}
+            )
+    
+    # Create tokens
+    access_token = create_access_token(user_id, email, user_role)
+    refresh_token = create_refresh_token(user_id)
+    
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    
+    # Redirect to frontend
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    return {"redirect_url": f"{frontend_url}/dashboard", "user_id": user_id}
+
+@auth_router.get("/microsoft/status")
+async def microsoft_status():
+    """Check if Microsoft login is configured"""
+    return {"configured": bool(MICROSOFT_CLIENT_ID and MICROSOFT_TENANT_ID)}
+
+# Password Reset Info Route
+@auth_router.get("/password-reset-info")
+async def password_reset_info():
+    """Return information about password reset process"""
+    return {
+        "message": "To reset your password, please contact HR department.",
+        "contact_email": "hr@company.com",
+        "contact_method": "Email HR or visit HR office during working hours"
+    }
+
+# Attendance Reports
+@reports_router.get("/attendance/export")
+async def export_attendance_report(
+    request: Request,
+    start_date: str,
+    end_date: str,
+    employee_id: Optional[str] = None
+):
+    """Export attendance report as Excel"""
+    admin = await require_admin(request)
+    
+    # Build query
+    query = {
+        "date": {
+            "$gte": start_date,
+            "$lte": end_date
+        }
+    }
+    
+    if employee_id:
+        query["user_id"] = employee_id
+    
+    # Get attendance records
+    records = await db.attendance.find(query).sort([("date", 1), ("user_name", 1)]).to_list(10000)
+    
+    # Create Excel workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Attendance Report"
+    
+    # Styles
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="002FA7", end_color="002FA7", fill_type="solid")
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Headers
+    headers = ["Employee Name", "Date", "Clock In", "Clock Out", "Working Hours", "Break Time (min)", "Short Day", "Total Hours"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+    
+    # Data rows
+    total_hours_all = 0
+    for row_num, record in enumerate(records, 2):
+        clock_in = datetime.fromisoformat(record["clock_in"]).strftime("%I:%M %p") if record.get("clock_in") else "-"
+        clock_out = datetime.fromisoformat(record["clock_out"]).strftime("%I:%M %p") if record.get("clock_out") else "-"
+        working_hours = record.get("working_hours", 0)
+        total_hours_all += working_hours
+        
+        row_data = [
+            record.get("user_name", "Unknown"),
+            record.get("date", ""),
+            clock_in,
+            clock_out,
+            f"{working_hours:.2f}" if working_hours else "-",
+            record.get("total_break_minutes", 0),
+            "Yes" if record.get("is_short_day") else "No",
+            f"{working_hours:.2f}" if working_hours else "-"
+        ]
+        
+        for col, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col, value=value)
+            cell.border = thin_border
+            if col == 7 and value == "Yes":  # Short day highlight
+                cell.fill = PatternFill(start_color="FFEBE6", end_color="FFEBE6", fill_type="solid")
+    
+    # Summary row
+    summary_row = len(records) + 3
+    ws.cell(row=summary_row, column=1, value="TOTAL").font = Font(bold=True)
+    ws.cell(row=summary_row, column=5, value=f"{total_hours_all:.2f}").font = Font(bold=True)
+    ws.cell(row=summary_row, column=8, value=f"{total_hours_all:.2f}").font = Font(bold=True)
+    
+    # Column widths
+    ws.column_dimensions['A'].width = 20
+    ws.column_dimensions['B'].width = 12
+    ws.column_dimensions['C'].width = 12
+    ws.column_dimensions['D'].width = 12
+    ws.column_dimensions['E'].width = 15
+    ws.column_dimensions['F'].width = 15
+    ws.column_dimensions['G'].width = 12
+    ws.column_dimensions['H'].width = 12
+    
+    # Save to buffer
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    
+    filename = f"attendance_report_{start_date}_to_{end_date}.xlsx"
+    
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 # Include routers (MUST be after all route definitions)
 api_router.include_router(auth_router)
 api_router.include_router(attendance_router)
@@ -1312,6 +1706,7 @@ api_router.include_router(admin_router)
 api_router.include_router(employees_router)
 api_router.include_router(permission_router)
 api_router.include_router(payslip_router)
+api_router.include_router(reports_router)
 
 @api_router.get("/")
 async def root():

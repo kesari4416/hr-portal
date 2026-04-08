@@ -26,6 +26,7 @@ export default function EmployeeDashboard() {
   const [permissionRequests, setPermissionRequests] = useState([]);
   const [workingSummary, setWorkingSummary] = useState(null);
   const [payslips, setPayslips] = useState([]);
+  const [myShift, setMyShift] = useState(null);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -48,7 +49,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -56,7 +57,8 @@ export default function EmployeeDashboard() {
         api.get("/permission/balance"),
         api.get("/permission/my-requests"),
         api.get("/attendance/working-hours-summary"),
-        api.get("/payslip/my-payslips")
+        api.get("/payslip/my-payslips"),
+        api.get("/attendance/my-shift")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -66,6 +68,7 @@ export default function EmployeeDashboard() {
       setPermissionRequests(permReqRes.data);
       setWorkingSummary(summaryRes.data);
       setPayslips(payslipsRes.data);
+      setMyShift(shiftRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -370,9 +373,16 @@ export default function EmployeeDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Clock Widget - Large */}
               <div className="lg:col-span-5 bg-white border border-gray-200 rounded-sm p-6">
-                <div className="flex items-center gap-2 mb-6">
-                  <Clock className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                  <h2 className="text-lg font-bold text-gray-900 font-['Outfit']">Time Tracker</h2>
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                    <h2 className="text-lg font-bold text-gray-900 font-['Outfit']">Time Tracker</h2>
+                  </div>
+                  {myShift && (
+                    <span className="text-xs px-2 py-1 bg-[#E5ECFF] text-[#002FA7] rounded-full font-medium">
+                      {myShift.name} ({myShift.start_time} - {myShift.end_time})
+                    </span>
+                  )}
                 </div>
 
                 {/* Timer Display */}

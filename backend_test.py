@@ -321,8 +321,192 @@ class HRPortalAPITester:
             self.tests_run += 1
             return False
 
+    def test_password_reset_info(self):
+        """Test password reset info endpoint"""
+        success, response = self.run_test(
+            "Password Reset Info",
+            "GET",
+            "auth/password-reset-info",
+            200
+        )
+        if success and 'message' in response:
+            print(f"   Reset info: {response.get('message', '')}")
+            print(f"   Contact: {response.get('contact_email', '')}")
+            return True
+        return False
+
+    def test_microsoft_oauth_status(self):
+        """Test Microsoft OAuth status endpoint"""
+        success, response = self.run_test(
+            "Microsoft OAuth Status",
+            "GET",
+            "auth/microsoft/status",
+            200
+        )
+        if success and 'configured' in response:
+            print(f"   Microsoft OAuth configured: {response.get('configured', False)}")
+            return True
+        return False
+
+    def test_get_shifts(self):
+        """Test getting available shifts"""
+        url = f"{self.base_url}/api/admin/shifts"
+        try:
+            response = requests.get(url, cookies=self.admin_cookies)
+            
+            self.tests_run += 1
+            if response.status_code == 200:
+                shifts = response.json()
+                print(f"✅ Retrieved shifts: {list(shifts.keys())}")
+                self.tests_passed += 1
+                return True
+            else:
+                print(f"❌ Failed to get shifts - Status: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to get shifts - Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_assign_shift(self):
+        """Test assigning shift to employee"""
+        if not self.employee_id:
+            print("❌ No employee ID available for shift assignment")
+            self.tests_run += 1
+            return False
+
+        url = f"{self.base_url}/api/admin/employees/{self.employee_id}/shift"
+        try:
+            response = requests.put(url, 
+                                  json={"shift": "general"}, 
+                                  cookies=self.admin_cookies,
+                                  headers={'Content-Type': 'application/json'})
+            
+            self.tests_run += 1
+            if response.status_code == 200:
+                print(f"✅ Assigned shift successfully")
+                self.tests_passed += 1
+                return True
+            else:
+                print(f"❌ Failed to assign shift - Status: {response.status_code}")
+                if response.content:
+                    try:
+                        print(f"   Error: {response.json()}")
+                    except:
+                        print(f"   Error: {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to assign shift - Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_employee_get_shift(self):
+        """Test employee getting their shift"""
+        url = f"{self.base_url}/api/attendance/my-shift"
+        try:
+            response = requests.get(url, cookies=self.employee_cookies)
+            
+            self.tests_run += 1
+            if response.status_code == 200:
+                shift_data = response.json()
+                print(f"✅ Employee shift: {shift_data.get('name', 'Unknown')} ({shift_data.get('start_time', '')}-{shift_data.get('end_time', '')})")
+                self.tests_passed += 1
+                return True
+            else:
+                print(f"❌ Failed to get employee shift - Status: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to get employee shift - Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_attendance_export(self):
+        """Test attendance export functionality"""
+        from datetime import datetime, timedelta
+        
+        # Test with date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        
+        url = f"{self.base_url}/api/reports/attendance/export"
+        params = {
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d')
+        }
+        
+        try:
+            response = requests.get(url, params=params, cookies=self.admin_cookies)
+            
+            self.tests_run += 1
+            if response.status_code == 200:
+                content_type = response.headers.get('content-type', '')
+                if 'spreadsheet' in content_type.lower() or 'excel' in content_type.lower():
+                    print(f"✅ Attendance export successful ({len(response.content)} bytes)")
+                    self.tests_passed += 1
+                    return True
+                else:
+                    print(f"❌ Export content is not Excel - Content-Type: {content_type}")
+                    return False
+            else:
+                print(f"❌ Failed to export attendance - Status: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to export attendance - Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_payslip_with_email_option(self):
+        """Test generating payslip with email option"""
+        if not self.employee_id:
+            print("❌ No employee ID available for payslip with email test")
+            self.tests_run += 1
+            return False
+
+        current_date = datetime.now()
+        url = f"{self.base_url}/api/admin/payslip/generate"
+        try:
+            response = requests.post(url, 
+                                   json={
+                                       "employee_id": self.employee_id,
+                                       "month": current_date.month,
+                                       "year": current_date.year,
+                                       "send_email": True
+                                   }, 
+                                   cookies=self.admin_cookies,
+                                   headers={'Content-Type': 'application/json'})
+            
+            self.tests_run += 1
+            if response.status_code == 200:
+                payslip_data = response.json()
+                email_sent = payslip_data.get('email_sent', False)
+                print(f"✅ Generated payslip with email option - Email sent: {email_sent}")
+                self.tests_passed += 1
+                return True
+            elif response.status_code == 400:
+                # Might fail if payslip already exists for this month
+                error_data = response.json()
+                if "already exists" in error_data.get('detail', ''):
+                    print(f"✅ Payslip generation with email option works (payslip already exists)")
+                    self.tests_passed += 1
+                    return True
+                else:
+                    print(f"❌ Failed to generate payslip with email - Error: {error_data}")
+                    return False
+            else:
+                print(f"❌ Failed to generate payslip with email - Status: {response.status_code}")
+                if response.content:
+                    try:
+                        print(f"   Error: {response.json()}")
+                    except:
+                        print(f"   Error: {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to generate payslip with email - Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
 def main():
-    print("🚀 Starting HR Portal Payslip API Tests")
+    print("🚀 Starting HR Portal API Tests")
     print("=" * 50)
     
     tester = HRPortalAPITester()
@@ -331,14 +515,21 @@ def main():
     tests = [
         ("Admin Login", tester.test_admin_login),
         ("Employee Login", tester.test_employee_login),
+        ("Password Reset Info", tester.test_password_reset_info),
+        ("Microsoft OAuth Status", tester.test_microsoft_oauth_status),
         ("Get Employees", tester.test_get_employees),
+        ("Get Available Shifts", tester.test_get_shifts),
+        ("Assign Shift to Employee", tester.test_assign_shift),
+        ("Employee Get My Shift", tester.test_employee_get_shift),
         ("Set Employee Salary", tester.test_set_employee_salary),
         ("Get Employee Salary", tester.test_get_employee_salary),
         ("Generate Payslip", tester.test_generate_payslip),
+        ("Generate Payslip with Email Option", tester.test_payslip_with_email_option),
         ("Admin Get All Payslips", tester.test_admin_get_payslips),
         ("Employee Get My Payslips", tester.test_employee_get_payslips),
         ("Admin Download Payslip PDF", tester.test_download_payslip_admin),
         ("Employee Download Payslip PDF", tester.test_download_payslip_employee),
+        ("Attendance Export to Excel", tester.test_attendance_export),
     ]
     
     failed_tests = []
