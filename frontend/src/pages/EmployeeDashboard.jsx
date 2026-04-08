@@ -13,13 +13,14 @@ import { format } from "date-fns";
 import { 
   SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
-  CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple
+  CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
+  CalendarStar, CurrencyCircleDollar
 } from "@phosphor-icons/react";
 
 export default function EmployeeDashboard() {
   const { user, logout, api } = useAuth();
   const [attendanceStatus, setAttendanceStatus] = useState({ clocked_in: false, on_break: false, attendance: null });
-  const [leaveBalance, setLeaveBalance] = useState({ casual: 0, sick: 0, earned: 0 });
+  const [leaveBalance, setLeaveBalance] = useState({ casual: 0, sick: 0, loss_of_pay: 0 });
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [attendanceHistory, setAttendanceHistory] = useState([]);
   const [permissionBalance, setPermissionBalance] = useState({ remaining_minutes: 120, used_minutes: 0 });
@@ -27,6 +28,7 @@ export default function EmployeeDashboard() {
   const [workingSummary, setWorkingSummary] = useState(null);
   const [payslips, setPayslips] = useState([]);
   const [myShift, setMyShift] = useState(null);
+  const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -49,7 +51,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -58,7 +60,8 @@ export default function EmployeeDashboard() {
         api.get("/permission/my-requests"),
         api.get("/attendance/working-hours-summary"),
         api.get("/payslip/my-payslips"),
-        api.get("/attendance/my-shift")
+        api.get("/attendance/my-shift"),
+        api.get("/holidays/list")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -69,6 +72,7 @@ export default function EmployeeDashboard() {
       setWorkingSummary(summaryRes.data);
       setPayslips(payslipsRes.data);
       setMyShift(shiftRes.data);
+      setHolidays(holidaysRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -312,6 +316,14 @@ export default function EmployeeDashboard() {
             <ChartBar className="h-5 w-5" weight="duotone" />
             <span>Work Summary</span>
           </button>
+          <button
+            data-testid="holidays-tab"
+            onClick={() => setActiveTab("holidays")}
+            className={activeTab === "holidays" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <CalendarStar className="h-5 w-5" weight="duotone" />
+            <span>Holidays</span>
+          </button>
         </nav>
 
         {/* User Info */}
@@ -524,15 +536,6 @@ export default function EmployeeDashboard() {
                   <p className="text-sm text-gray-500">days remaining</p>
                 </div>
 
-                <div className="metric-card">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Briefcase className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Earned Leave</span>
-                  </div>
-                  <p className="text-3xl font-bold text-gray-900">{leaveBalance.earned}</p>
-                  <p className="text-sm text-gray-500">days remaining</p>
-                </div>
-
                 {/* Permission Hours Card */}
                 <div className="metric-card" style={{ borderLeftColor: '#FFC107' }}>
                   <div className="flex items-center gap-2 mb-3">
@@ -542,6 +545,16 @@ export default function EmployeeDashboard() {
                   <p className="text-3xl font-bold text-gray-900">{(permissionBalance.remaining_minutes / 60).toFixed(1)}h</p>
                   <p className="text-sm text-gray-500">of 2 hours remaining</p>
                   <p className="text-xs text-gray-400 mt-1">Max 1 hour per use</p>
+                </div>
+
+                {/* Loss of Pay Card */}
+                <div className="metric-card" style={{ borderLeftColor: '#EF4444' }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <CurrencyCircleDollar className="h-5 w-5 text-red-500" weight="duotone" />
+                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loss of Pay</span>
+                  </div>
+                  <p className="text-3xl font-bold text-gray-900">{leaveBalance.loss_of_pay || 0}</p>
+                  <p className="text-sm text-gray-500">days taken</p>
                 </div>
 
                 {/* Request Buttons */}
@@ -574,7 +587,7 @@ export default function EmployeeDashboard() {
                             <SelectContent>
                               <SelectItem value="casual">Casual Leave ({leaveBalance.casual} left)</SelectItem>
                               <SelectItem value="sick">Sick Leave ({leaveBalance.sick} left)</SelectItem>
-                              <SelectItem value="earned">Earned Leave ({leaveBalance.earned} left)</SelectItem>
+                              <SelectItem value="loss_of_pay">Loss of Pay</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -1059,6 +1072,65 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
             )}
+          </>
+        )}
+
+        {/* Holidays Tab */}
+        {activeTab === "holidays" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Holiday List 2026</h1>
+              <p className="text-gray-500 mt-1">Public holidays and weekly offs</p>
+            </div>
+
+            {/* Weekend Info */}
+            <div className="bg-[#E5ECFF] border border-[#002FA7]/20 rounded-sm p-4 mb-6">
+              <div className="flex items-center gap-2">
+                <CalendarStar className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                <p className="text-sm font-medium text-[#002FA7]">
+                  Saturday & Sunday are weekly holidays
+                </p>
+              </div>
+            </div>
+
+            {/* Holidays Table */}
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="table-header">#</th>
+                    <th className="table-header">Date</th>
+                    <th className="table-header">Day</th>
+                    <th className="table-header">Festival</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {holidays.map((holiday, index) => {
+                    const holidayDate = new Date(holiday.date + "T00:00:00");
+                    const isPast = holidayDate < new Date(new Date().toDateString());
+                    return (
+                      <tr key={index} className={`border-b border-gray-100 ${isPast ? "opacity-50" : ""}`}>
+                        <td className="table-cell text-gray-500">{index + 1}</td>
+                        <td className="table-cell font-medium">
+                          {format(holidayDate, "dd MMM yyyy")}
+                        </td>
+                        <td className="table-cell">{holiday.day}</td>
+                        <td className="table-cell">
+                          <span className="inline-flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-[#002FA7]"></span>
+                            {holiday.festival}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 text-sm text-gray-500">
+              Total public holidays: <strong>{holidays.length}</strong>
+            </div>
           </>
         )}
       </main>

@@ -10,7 +10,7 @@ import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Key
+  ClockClockwise, FileXls, Key, CalendarStar
 } from "@phosphor-icons/react";
 
 const SHIFTS = {
@@ -29,6 +29,7 @@ export default function AdminDashboard() {
   const [permissionRequests, setPermissionRequests] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [payslips, setPayslips] = useState([]);
+  const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
   const [editEmployeeOpen, setEditEmployeeOpen] = useState(false);
@@ -66,19 +67,19 @@ export default function AdminDashboard() {
     position: "",
     casual_leave: 0,
     sick_leave: 0,
-    earned_leave: 0,
     permission_hours: 2
   });
 
   const fetchData = useCallback(async () => {
     try {
-      const [analyticsRes, employeesRes, leaveRes, attendanceRes, permRes, payslipsRes] = await Promise.all([
+      const [analyticsRes, employeesRes, leaveRes, attendanceRes, permRes, payslipsRes, holidaysRes] = await Promise.all([
         api.get("/admin/analytics"),
         api.get("/admin/employees"),
         api.get("/admin/leave-requests"),
         api.get("/admin/attendance"),
         api.get("/admin/permissions"),
-        api.get("/admin/payslips")
+        api.get("/admin/payslips"),
+        api.get("/holidays/list")
       ]);
       setAnalytics(analyticsRes.data);
       setEmployees(employeesRes.data);
@@ -86,6 +87,7 @@ export default function AdminDashboard() {
       setAttendance(attendanceRes.data);
       setPermissionRequests(permRes.data);
       setPayslips(payslipsRes.data);
+      setHolidays(holidaysRes.data);
     } catch (error) {
       console.error("Error fetching admin data:", error);
     }
@@ -194,8 +196,7 @@ export default function AdminDashboard() {
       department: employee.department || "",
       position: employee.position || "",
       casual_leave: employee.casual_leave || 12,
-      sick_leave: employee.sick_leave || 6,
-      earned_leave: employee.earned_leave || 15,
+      sick_leave: employee.sick_leave || 12,
       permission_hours: employee.permission_hours || 2
     });
     setEditEmployeeOpen(true);
@@ -372,6 +373,7 @@ export default function AdminDashboard() {
     { id: "leaves", label: "Leave Requests", icon: CalendarCheck },
     { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
+    { id: "holidays", label: "Holidays", icon: CalendarStar },
   ];
 
   return (
@@ -746,15 +748,6 @@ export default function AdminDashboard() {
                         type="number"
                         value={editForm.sick_leave}
                         onChange={(e) => setEditForm({ ...editForm, sick_leave: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Earned Leave</Label>
-                      <Input
-                        data-testid="edit-earned-leave"
-                        type="number"
-                        value={editForm.earned_leave}
-                        onChange={(e) => setEditForm({ ...editForm, earned_leave: parseInt(e.target.value) || 0 })}
                       />
                     </div>
                   </div>
@@ -1284,6 +1277,73 @@ export default function AdminDashboard() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </>
+        )}
+
+        {/* Holidays Tab */}
+        {activeTab === "holidays" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Holiday List 2026</h1>
+              <p className="text-gray-500 mt-1">Public holidays and weekly offs for all employees</p>
+            </div>
+
+            {/* Weekend Info */}
+            <div className="bg-[#E5ECFF] border border-[#002FA7]/20 rounded-sm p-4 mb-6">
+              <div className="flex items-center gap-2">
+                <CalendarStar className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                <p className="text-sm font-medium text-[#002FA7]">
+                  Saturday & Sunday are weekly holidays for all employees
+                </p>
+              </div>
+            </div>
+
+            {/* Holidays Table */}
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="table-header">#</th>
+                    <th className="table-header">Date</th>
+                    <th className="table-header">Day</th>
+                    <th className="table-header">Festival</th>
+                    <th className="table-header">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {holidays.map((holiday, index) => {
+                    const holidayDate = new Date(holiday.date + "T00:00:00");
+                    const isPast = holidayDate < new Date(new Date().toDateString());
+                    return (
+                      <tr key={index} className={`border-b border-gray-100 ${isPast ? "opacity-50" : ""}`}>
+                        <td className="table-cell text-gray-500">{index + 1}</td>
+                        <td className="table-cell font-medium">
+                          {format(holidayDate, "dd MMM yyyy")}
+                        </td>
+                        <td className="table-cell">{holiday.day}</td>
+                        <td className="table-cell">
+                          <span className="inline-flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-[#002FA7]"></span>
+                            {holiday.festival}
+                          </span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            isPast ? "bg-gray-100 text-gray-500" : "bg-[#E6FFEE] text-[#00C853]"
+                          }`}>
+                            {isPast ? "Passed" : "Upcoming"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 text-sm text-gray-500">
+              Total public holidays: <strong>{holidays.length}</strong>
             </div>
           </>
         )}

@@ -110,6 +110,7 @@ admin_router = APIRouter(prefix="/admin")
 permission_router = APIRouter(prefix="/permission")
 payslip_router = APIRouter(prefix="/payslip")
 reports_router = APIRouter(prefix="/reports")
+holidays_router = APIRouter(prefix="/holidays")
 
 # Constants for working hours
 REQUIRED_WORK_HOURS = 8.0  # Minimum 8 hours
@@ -119,6 +120,38 @@ MAX_PERMISSION_PER_USE = 1  # Max 1 hour per permission
 SHORT_DAYS_FOR_HALF_LEAVE = 3  # 3 short days = 1 half day leave
 MAX_BREAK_MINUTES = 30  # Maximum 30 minutes break per day
 WORKING_DAYS_PER_MONTH = 22  # Average working days
+
+# Holiday List (Year 2026)
+HOLIDAYS = [
+    {"date": "2026-01-01", "day": "Thursday", "festival": "New Year"},
+    {"date": "2026-01-26", "day": "Monday", "festival": "Republic Day"},
+    {"date": "2026-04-03", "day": "Friday", "festival": "Good Friday"},
+    {"date": "2026-04-14", "day": "Tuesday", "festival": "Vishu"},
+    {"date": "2026-05-01", "day": "Friday", "festival": "May Day"},
+    {"date": "2026-05-27", "day": "Wednesday", "festival": "Bakrid (Tentative)"},
+    {"date": "2026-08-15", "day": "Saturday", "festival": "Independence Day"},
+    {"date": "2026-08-25", "day": "Tuesday", "festival": "Onam"},
+    {"date": "2026-10-02", "day": "Friday", "festival": "Gandhi Jayanti"},
+    {"date": "2026-10-20", "day": "Tuesday", "festival": "Vijayadasami"},
+    {"date": "2026-11-08", "day": "Sunday", "festival": "Diwali"},
+    {"date": "2026-12-25", "day": "Friday", "festival": "Christmas"},
+]
+
+def is_weekend(date_str: str) -> bool:
+    """Check if a date falls on Saturday or Sunday"""
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    return d.weekday() in (5, 6)  # 5=Saturday, 6=Sunday
+
+def is_holiday(date_str: str) -> bool:
+    """Check if a date is a public holiday"""
+    return any(h["date"] == date_str for h in HOLIDAYS)
+
+def get_holiday_name(date_str: str) -> str:
+    """Get holiday name for a date"""
+    for h in HOLIDAYS:
+        if h["date"] == date_str:
+            return h["festival"]
+    return ""
 
 # Shift Definitions
 SHIFTS = {
@@ -150,7 +183,7 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
 
 class LeaveRequest(BaseModel):
-    leave_type: str  # casual, sick, earned
+    leave_type: str  # casual, sick, loss_of_pay
     start_date: str
     end_date: str
     reason: str
@@ -175,7 +208,6 @@ class EmployeeUpdate(BaseModel):
     position: Optional[str] = None
     casual_leave: Optional[int] = None
     sick_leave: Optional[int] = None
-    earned_leave: Optional[int] = None
     permission_hours: Optional[float] = None
     shift: Optional[str] = None
 
@@ -225,10 +257,10 @@ async def register(user_data: UserRegister, response: Response):
         "avatar_url": avatar_urls[hash(email) % len(avatar_urls)],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "casual_leave": 12,
-        "sick_leave": 6,
-        "earned_leave": 15,
+        "sick_leave": 12,
         "permission_hours": MONTHLY_PERMISSION_HOURS,
-        "half_day_leave": 0
+        "half_day_leave": 0,
+        "loss_of_pay": 0
     }
     
     result = await db.users.insert_one(user_doc)
@@ -294,6 +326,15 @@ async def get_me(request: Request):
 async def clock_in(request: Request):
     user = await get_current_user(request)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Check if weekend
+    if is_weekend(today):
+        raise HTTPException(status_code=400, detail="Cannot clock in on weekends (Saturday/Sunday)")
+    
+    # Check if holiday
+    if is_holiday(today):
+        holiday_name = get_holiday_name(today)
+        raise HTTPException(status_code=400, detail=f"Cannot clock in on holiday: {holiday_name}")
     
     existing = await db.attendance.find_one({
         "user_id": user["_id"],
@@ -546,26 +587,36 @@ async def get_leave_balance(request: Request):
     
     return {
         "casual": user_doc.get("casual_leave", 12),
-        "sick": user_doc.get("sick_leave", 6),
-        "earned": user_doc.get("earned_leave", 15)
+        "sick": user_doc.get("sick_leave", 12),
+        "loss_of_pay": user_doc.get("loss_of_pay", 0)
     }
 
 @leave_router.post("/request")
 async def create_leave_request(leave_data: LeaveRequest, request: Request):
     user = await get_current_user(request)
     
-    # Calculate days
+    # Calculate working days (exclude weekends and holidays)
     start = datetime.strptime(leave_data.start_date, "%Y-%m-%d")
     end = datetime.strptime(leave_data.end_date, "%Y-%m-%d")
-    days = (end - start).days + 1
+    working_days = 0
+    current = start
+    while current <= end:
+        date_str = current.strftime("%Y-%m-%d")
+        if not is_weekend(date_str) and not is_holiday(date_str):
+            working_days += 1
+        current += timedelta(days=1)
     
-    # Check balance
+    if working_days == 0:
+        raise HTTPException(status_code=400, detail="Selected dates only contain weekends/holidays")
+    
+    # Check balance (LOP doesn't need balance check)
     user_doc = await db.users.find_one({"_id": ObjectId(user["_id"])})
-    leave_field = f"{leave_data.leave_type}_leave"
-    current_balance = user_doc.get(leave_field, 0)
     
-    if days > current_balance:
-        raise HTTPException(status_code=400, detail=f"Insufficient {leave_data.leave_type} leave balance")
+    if leave_data.leave_type != "loss_of_pay":
+        leave_field = f"{leave_data.leave_type}_leave"
+        current_balance = user_doc.get(leave_field, 0)
+        if working_days > current_balance:
+            raise HTTPException(status_code=400, detail=f"Insufficient {leave_data.leave_type} leave balance")
     
     leave_doc = {
         "user_id": user["_id"],
@@ -574,7 +625,7 @@ async def create_leave_request(leave_data: LeaveRequest, request: Request):
         "leave_type": leave_data.leave_type,
         "start_date": leave_data.start_date,
         "end_date": leave_data.end_date,
-        "days": days,
+        "days": working_days,
         "reason": leave_data.reason,
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -665,10 +716,10 @@ async def create_employee(user_data: UserRegister, request: Request):
         "avatar_url": avatar_urls[hash(email) % len(avatar_urls)],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "casual_leave": 12,
-        "sick_leave": 6,
-        "earned_leave": 15,
+        "sick_leave": 12,
         "permission_hours": MONTHLY_PERMISSION_HOURS,
         "half_day_leave": 0,
+        "loss_of_pay": 0,
         "shift": ""
     }
     
@@ -777,11 +828,18 @@ async def review_leave_request(leave_id: str, request: Request, action: str):
     
     # If approved, deduct leave balance
     if action == "approve":
-        leave_field = f"{leave_req['leave_type']}_leave"
-        await db.users.update_one(
-            {"_id": ObjectId(leave_req["user_id"])},
-            {"$inc": {leave_field: -leave_req["days"]}}
-        )
+        if leave_req["leave_type"] == "loss_of_pay":
+            # Track LOP days on user
+            await db.users.update_one(
+                {"_id": ObjectId(leave_req["user_id"])},
+                {"$inc": {"loss_of_pay": leave_req["days"]}}
+            )
+        else:
+            leave_field = f"{leave_req['leave_type']}_leave"
+            await db.users.update_one(
+                {"_id": ObjectId(leave_req["user_id"])},
+                {"$inc": {leave_field: -leave_req["days"]}}
+            )
     
     return {"message": f"Leave request {new_status}"}
 
@@ -1264,11 +1322,31 @@ async def generate_payslip(data: PayslipGenerate, request: Request):
         })
         total_deductions += amount
     
-    # 2. Unpaid leave deductions
+    # 2. Loss of Pay deductions
+    lop_leaves = await db.leave_requests.find({
+        "user_id": data.employee_id,
+        "status": "approved",
+        "leave_type": "loss_of_pay",
+        "start_date": {
+            "$gte": month_start.strftime("%Y-%m-%d"),
+            "$lt": month_end.strftime("%Y-%m-%d")
+        }
+    }).to_list(100)
+    
+    lop_days = sum(l.get("days", 0) for l in lop_leaves)
+    if lop_days > 0:
+        lop_amount = lop_days * per_day_salary
+        deductions.append({
+            "description": f"Loss of Pay ({lop_days} days)",
+            "amount": round(lop_amount, 2)
+        })
+        total_deductions += lop_amount
+    
+    # 3. Unpaid leave deductions
     unpaid_leaves = await db.leave_requests.find({
         "user_id": data.employee_id,
         "status": "approved",
-        "leave_type": {"$in": ["casual", "sick", "earned"]},
+        "leave_type": {"$in": ["casual", "sick"]},
         "start_date": {
             "$gte": month_start.strftime("%Y-%m-%d"),
             "$lt": month_end.strftime("%Y-%m-%d")
@@ -1526,6 +1604,26 @@ async def export_attendance_report(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+# Holiday Routes
+@holidays_router.get("/list")
+async def get_holidays():
+    """Get list of all public holidays"""
+    return HOLIDAYS
+
+@holidays_router.get("/check/{date}")
+async def check_date(date: str):
+    """Check if a date is a weekend or holiday"""
+    weekend = is_weekend(date)
+    holiday = is_holiday(date)
+    holiday_name = get_holiday_name(date) if holiday else ""
+    return {
+        "date": date,
+        "is_weekend": weekend,
+        "is_holiday": holiday,
+        "holiday_name": holiday_name,
+        "is_working_day": not weekend and not holiday
+    }
+
 # Include routers (MUST be after all route definitions)
 api_router.include_router(auth_router)
 api_router.include_router(attendance_router)
@@ -1535,6 +1633,7 @@ api_router.include_router(employees_router)
 api_router.include_router(permission_router)
 api_router.include_router(payslip_router)
 api_router.include_router(reports_router)
+api_router.include_router(holidays_router)
 
 @api_router.get("/")
 async def root():
@@ -1583,8 +1682,8 @@ async def startup():
             "avatar_url": "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "casual_leave": 12,
-            "sick_leave": 6,
-            "earned_leave": 15
+            "sick_leave": 12,
+            "loss_of_pay": 0
         })
         logger.info(f"Admin user created: {admin_email}")
     elif not verify_password(admin_password, existing["password_hash"]):
