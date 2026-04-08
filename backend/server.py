@@ -105,6 +105,7 @@ TOTAL_WORK_HOURS = 8.5  # 8:30 hours total
 MONTHLY_PERMISSION_HOURS = 2  # 2 hours per month
 MAX_PERMISSION_PER_USE = 1  # Max 1 hour per permission
 SHORT_DAYS_FOR_HALF_LEAVE = 3  # 3 short days = 1 half day leave
+MAX_BREAK_MINUTES = 30  # Maximum 30 minutes break per day
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -383,9 +384,19 @@ async def start_break(request: Request):
         raise HTTPException(status_code=400, detail="Not clocked in")
     
     breaks = attendance.get("breaks", [])
+    
+    # Check if already on break
     for brk in breaks:
         if brk.get("end") is None:
             raise HTTPException(status_code=400, detail="Already on break")
+    
+    # Calculate total break time used
+    total_break_used = attendance.get("total_break_minutes", 0)
+    if total_break_used >= MAX_BREAK_MINUTES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Break limit reached. Maximum {MAX_BREAK_MINUTES} minutes break allowed per day."
+        )
     
     breaks.append({"start": datetime.now(timezone.utc).isoformat(), "end": None})
     
@@ -394,7 +405,13 @@ async def start_break(request: Request):
         {"$set": {"breaks": breaks}}
     )
     
-    return {"message": "Break started", "breaks": breaks}
+    remaining_break = MAX_BREAK_MINUTES - total_break_used
+    return {
+        "message": "Break started", 
+        "breaks": breaks,
+        "remaining_break_minutes": remaining_break,
+        "max_break_minutes": MAX_BREAK_MINUTES
+    }
 
 @attendance_router.post("/break/end")
 async def end_break(request: Request):
@@ -447,7 +464,13 @@ async def get_attendance_status(request: Request):
     }, {"_id": 0})
     
     if not attendance:
-        return {"clocked_in": False, "on_break": False, "attendance": None}
+        return {
+            "clocked_in": False, 
+            "on_break": False, 
+            "attendance": None,
+            "max_break_minutes": MAX_BREAK_MINUTES,
+            "remaining_break_minutes": MAX_BREAK_MINUTES
+        }
     
     on_break = False
     for brk in attendance.get("breaks", []):
@@ -455,10 +478,15 @@ async def get_attendance_status(request: Request):
             on_break = True
             break
     
+    total_break_used = attendance.get("total_break_minutes", 0)
+    remaining_break = max(0, MAX_BREAK_MINUTES - total_break_used)
+    
     return {
         "clocked_in": attendance.get("clock_out") is None,
         "on_break": on_break,
-        "attendance": attendance
+        "attendance": attendance,
+        "max_break_minutes": MAX_BREAK_MINUTES,
+        "remaining_break_minutes": remaining_break
     }
 
 @attendance_router.get("/history")

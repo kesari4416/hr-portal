@@ -404,11 +404,13 @@ export default function EmployeeDashboard() {
                         <button
                           data-testid="start-break-btn"
                           onClick={handleStartBreak}
-                          disabled={loading}
-                          className="btn-break"
+                          disabled={loading || (attendanceStatus.remaining_break_minutes || 0) <= 0}
+                          className={`btn-break ${(attendanceStatus.remaining_break_minutes || 0) <= 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           <Coffee className="inline h-5 w-5 mr-2" weight="bold" />
-                          Start Break
+                          {(attendanceStatus.remaining_break_minutes || 0) <= 0 
+                            ? "Break Limit Reached" 
+                            : `Start Break (${attendanceStatus.remaining_break_minutes || 30} min left)`}
                         </button>
                       ) : (
                         <button
@@ -454,8 +456,8 @@ export default function EmployeeDashboard() {
                       )}
                       <div>
                         <p className="text-gray-500">Break Time</p>
-                        <p className="font-medium text-gray-900">
-                          {attendanceStatus.attendance.total_break_minutes || 0} min
+                        <p className={`font-medium ${(attendanceStatus.attendance.total_break_minutes || 0) >= 30 ? 'text-[#FF2E00]' : 'text-gray-900'}`}>
+                          {attendanceStatus.attendance.total_break_minutes || 0} / 30 min
                         </p>
                       </div>
                     </div>
@@ -915,6 +917,19 @@ export default function EmployeeDashboard() {
                     <li className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-[#FFC107]"></div>
                       Max per use: <strong>1 hour</strong> (use twice per month)
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="font-medium text-gray-900 mb-2">Break Time</h3>
+                  <ul className="space-y-2 text-sm text-gray-600">
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#002FA7]"></div>
+                      Daily break allowance: <strong>30 minutes</strong>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#FFC107]"></div>
+                      Can be taken in multiple breaks
                     </li>
                   </ul>
                 </div>
