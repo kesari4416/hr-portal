@@ -5,13 +5,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "../components/ui/label";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Checkbox } from "../components/ui/checkbox";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Envelope
+  ClockClockwise, FileXls
 } from "@phosphor-icons/react";
 
 const SHIFTS = {
@@ -43,8 +42,7 @@ export default function AdminDashboard() {
   const [payslipForm, setPayslipForm] = useState({
     employee_id: "",
     month: new Date().getMonth() + 1,
-    year: new Date().getFullYear(),
-    send_email: false
+    year: new Date().getFullYear()
   });
   const [exportForm, setExportForm] = useState({
     start_date: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"),
@@ -218,20 +216,13 @@ export default function AdminDashboard() {
 
     setLoading(true);
     try {
-      const result = await api.post("/admin/payslip/generate", payslipForm);
-      if (payslipForm.send_email && result.data.email_sent) {
-        toast.success("Payslip generated and emailed successfully!");
-      } else if (payslipForm.send_email && !result.data.email_sent) {
-        toast.success("Payslip generated! (Email not configured)");
-      } else {
-        toast.success("Payslip generated successfully!");
-      }
+      await api.post("/admin/payslip/generate", payslipForm);
+      toast.success("Payslip generated successfully!");
       setGeneratePayslipOpen(false);
       setPayslipForm({
         employee_id: "",
         month: new Date().getMonth() + 1,
-        year: new Date().getFullYear(),
-        send_email: false
+        year: new Date().getFullYear()
       });
       fetchData();
     } catch (error) {
@@ -885,26 +876,13 @@ export default function AdminDashboard() {
                         />
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-sm">
-                      <Checkbox
-                        id="send-email"
-                        checked={payslipForm.send_email}
-                        onCheckedChange={(checked) => setPayslipForm({ ...payslipForm, send_email: checked })}
-                      />
-                      <div className="flex items-center gap-2">
-                        <Envelope className="h-4 w-4 text-gray-500" />
-                        <Label htmlFor="send-email" className="text-sm cursor-pointer">
-                          Send payslip via email
-                        </Label>
-                      </div>
-                    </div>
                     <Button
                       data-testid="submit-generate-payslip"
                       onClick={handleGeneratePayslip}
                       disabled={loading}
                       className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
                     >
-                      {payslipForm.send_email ? "Generate & Email Payslip" : "Generate Payslip"}
+                      Generate Payslip
                     </Button>
                   </div>
                 </DialogContent>

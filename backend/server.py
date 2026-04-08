@@ -18,10 +18,6 @@ import jwt
 import secrets
 import io
 import aiohttp
-import aiosmtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -139,12 +135,6 @@ MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
 MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "")
 MICROSOFT_REDIRECT_URI = os.environ.get("MICROSOFT_REDIRECT_URI", "")
 
-# Email Config (Gmail SMTP)
-SMTP_EMAIL = os.environ.get("SMTP_EMAIL", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")  # App Password for Gmail
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
-
 # Pydantic Models
 class UserRegister(BaseModel):
     email: EmailStr
@@ -208,7 +198,6 @@ class PayslipGenerate(BaseModel):
     employee_id: str
     month: int  # 1-12
     year: int
-    send_email: Optional[bool] = False
 
 class ShiftAssign(BaseModel):
     shift: str  # general, morning, afternoon, night
@@ -217,58 +206,6 @@ class AttendanceReportRequest(BaseModel):
     start_date: str
     end_date: str
     employee_id: Optional[str] = None  # None means all employees
-
-# Email utility function
-async def send_payslip_email(employee_email: str, employee_name: str, payslip: dict, pdf_buffer: io.BytesIO):
-    """Send payslip PDF via email"""
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        logger.warning("Email not configured, skipping email send")
-        return False
-    
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SMTP_EMAIL
-        msg['To'] = employee_email
-        msg['Subject'] = f"Payslip for {payslip['month_name']} {payslip['year']} - HR Portal"
-        
-        body = f"""
-Dear {employee_name},
-
-Your payslip for {payslip['month_name']} {payslip['year']} is now available.
-
-Summary:
-- Basic Salary: ₹{payslip['basic_salary']:,.2f}
-- Total Deductions: ₹{payslip['total_deductions']:,.2f}
-- Net Pay: ₹{payslip['net_pay']:,.2f}
-
-Please find the detailed payslip attached as PDF.
-
-Best regards,
-HR Portal Team
-        """
-        msg.attach(MIMEText(body, 'plain'))
-        
-        # Attach PDF
-        pdf_buffer.seek(0)
-        pdf_attachment = MIMEApplication(pdf_buffer.read(), _subtype='pdf')
-        pdf_attachment.add_header('Content-Disposition', 'attachment', filename=f'payslip_{payslip["month_name"]}_{payslip["year"]}.pdf')
-        msg.attach(pdf_attachment)
-        
-        # Send email
-        await aiosmtplib.send(
-            msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_EMAIL,
-            password=SMTP_PASSWORD,
-            start_tls=True
-        )
-        
-        logger.info(f"Payslip email sent to {employee_email}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send email: {e}")
-        return False
 
 # Auth Routes
 @auth_router.post("/register")
@@ -1363,18 +1300,6 @@ async def generate_payslip(data: PayslipGenerate, request: Request):
     payslip_doc["id"] = str(result.inserted_id)
     payslip_doc.pop("_id", None)
     
-    # Send email if requested
-    email_sent = False
-    if data.send_email and employee.get("email"):
-        pdf_buffer = generate_payslip_pdf(payslip_doc)
-        email_sent = await send_payslip_email(
-            employee["email"],
-            employee["name"],
-            payslip_doc,
-            pdf_buffer
-        )
-    
-    payslip_doc["email_sent"] = email_sent
     return payslip_doc
 
 @admin_router.get("/payslips")
