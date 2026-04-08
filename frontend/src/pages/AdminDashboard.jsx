@@ -1087,14 +1087,14 @@ export default function AdminDashboard() {
                     <div className="space-y-2">
                       <Label>Employee (optional)</Label>
                       <Select
-                        value={exportForm.employee_id}
-                        onValueChange={(value) => setExportForm({ ...exportForm, employee_id: value })}
+                        value={exportForm.employee_id || "all"}
+                        onValueChange={(value) => setExportForm({ ...exportForm, employee_id: value === "all" ? "" : value })}
                       >
                         <SelectTrigger data-testid="export-employee-select">
                           <SelectValue placeholder="All employees" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">All employees</SelectItem>
+                          <SelectItem value="all">All employees</SelectItem>
                           {employees.filter(e => e.role !== "admin").map((emp) => (
                             <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
                           ))}
