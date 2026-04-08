@@ -4,11 +4,12 @@ import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
 import { Input } from "../components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, ChartBar, Clock, House, 
-  UserPlus, Check, X, Trash, PencilSimple, Hourglass, Timer
+  UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple
 } from "@phosphor-icons/react";
 
 export default function AdminDashboard() {
@@ -19,10 +20,19 @@ export default function AdminDashboard() {
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [permissionRequests, setPermissionRequests] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const [payslips, setPayslips] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
   const [editEmployeeOpen, setEditEmployeeOpen] = useState(false);
+  const [salaryDialogOpen, setSalaryDialogOpen] = useState(false);
+  const [generatePayslipOpen, setGeneratePayslipOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [salaryAmount, setSalaryAmount] = useState("");
+  const [payslipForm, setPayslipForm] = useState({
+    employee_id: "",
+    month: new Date().getMonth() + 1,
+    year: new Date().getFullYear()
+  });
 
   const [newEmployee, setNewEmployee] = useState({
     email: "",
@@ -44,18 +54,20 @@ export default function AdminDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [analyticsRes, employeesRes, leaveRes, attendanceRes, permRes] = await Promise.all([
+      const [analyticsRes, employeesRes, leaveRes, attendanceRes, permRes, payslipsRes] = await Promise.all([
         api.get("/admin/analytics"),
         api.get("/admin/employees"),
         api.get("/admin/leave-requests"),
         api.get("/admin/attendance"),
-        api.get("/admin/permissions")
+        api.get("/admin/permissions"),
+        api.get("/admin/payslips")
       ]);
       setAnalytics(analyticsRes.data);
       setEmployees(employeesRes.data);
       setLeaveRequests(leaveRes.data);
       setAttendance(attendanceRes.data);
       setPermissionRequests(permRes.data);
+      setPayslips(payslipsRes.data);
     } catch (error) {
       console.error("Error fetching admin data:", error);
     }
@@ -148,6 +160,93 @@ export default function AdminDashboard() {
     setEditEmployeeOpen(true);
   };
 
+  const openSalaryModal = async (employee) => {
+    setSelectedEmployee(employee);
+    try {
+      const { data } = await api.get(`/admin/employees/${employee.id}/salary`);
+      setSalaryAmount(data.basic_salary?.toString() || "");
+    } catch (error) {
+      setSalaryAmount("");
+    }
+    setSalaryDialogOpen(true);
+  };
+
+  const handleSetSalary = async () => {
+    if (!salaryAmount || isNaN(parseFloat(salaryAmount))) {
+      toast.error("Please enter a valid salary amount");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.put(`/admin/employees/${selectedEmployee.id}/salary`, {
+        basic_salary: parseFloat(salaryAmount)
+      });
+      toast.success("Salary updated successfully!");
+      setSalaryDialogOpen(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update salary");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGeneratePayslip = async () => {
+    if (!payslipForm.employee_id) {
+      toast.error("Please select an employee");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.post("/admin/payslip/generate", payslipForm);
+      toast.success("Payslip generated successfully!");
+      setGeneratePayslipOpen(false);
+      setPayslipForm({
+        employee_id: "",
+        month: new Date().getMonth() + 1,
+        year: new Date().getFullYear()
+      });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to generate payslip");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadPayslip = async (payslipId) => {
+    try {
+      const response = await api.get(`/payslip/download/${payslipId}`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payslip_${payslipId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Payslip downloaded!");
+    } catch (error) {
+      toast.error("Failed to download payslip");
+    }
+  };
+
+  const handleDeletePayslip = async (payslipId) => {
+    if (!window.confirm("Are you sure you want to delete this payslip?")) return;
+
+    try {
+      await api.delete(`/admin/payslips/${payslipId}`);
+      toast.success("Payslip deleted");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete payslip");
+    }
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case "approved":
@@ -159,9 +258,17 @@ export default function AdminDashboard() {
     }
   };
 
+  const months = [
+    { value: 1, label: "January" }, { value: 2, label: "February" }, { value: 3, label: "March" },
+    { value: 4, label: "April" }, { value: 5, label: "May" }, { value: 6, label: "June" },
+    { value: 7, label: "July" }, { value: 8, label: "August" }, { value: 9, label: "September" },
+    { value: 10, label: "October" }, { value: 11, label: "November" }, { value: 12, label: "December" }
+  ];
+
   const navItems = [
     { id: "overview", label: "Overview", icon: House },
     { id: "employees", label: "Employees", icon: Users },
+    { id: "payslips", label: "Payslips", icon: Receipt },
     { id: "leaves", label: "Leave Requests", icon: CalendarCheck },
     { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
@@ -375,6 +482,7 @@ export default function AdminDashboard() {
                     <th className="table-header">Employee</th>
                     <th className="table-header">Department</th>
                     <th className="table-header">Position</th>
+                    <th className="table-header">Salary</th>
                     <th className="table-header">Role</th>
                     <th className="table-header">Actions</th>
                   </tr>
@@ -398,6 +506,13 @@ export default function AdminDashboard() {
                       <td className="table-cell">{emp.department || "—"}</td>
                       <td className="table-cell">{emp.position || "—"}</td>
                       <td className="table-cell">
+                        {emp.basic_salary ? (
+                          <span className="text-[#00C853] font-medium">₹{emp.basic_salary.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-gray-400">Not set</span>
+                        )}
+                      </td>
+                      <td className="table-cell">
                         <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase ${
                           emp.role === "admin" ? "bg-[#E5ECFF] text-[#002FA7]" : "bg-gray-100 text-gray-600"
                         }`}>
@@ -406,6 +521,18 @@ export default function AdminDashboard() {
                       </td>
                       <td className="table-cell">
                         <div className="flex items-center gap-2">
+                          {emp.role !== "admin" && (
+                            <Button
+                              data-testid={`set-salary-${emp.id}`}
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openSalaryModal(emp)}
+                              className="text-gray-500 hover:text-[#00C853]"
+                              title="Set Salary"
+                            >
+                              <CurrencyDollar className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             data-testid={`edit-employee-${emp.id}`}
                             variant="ghost"
@@ -508,6 +635,177 @@ export default function AdminDashboard() {
                 </div>
               </DialogContent>
             </Dialog>
+
+            {/* Salary Dialog */}
+            <Dialog open={salaryDialogOpen} onOpenChange={setSalaryDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit']">Set Employee Salary</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-gray-500 -mt-2">
+                  Set monthly basic salary for {selectedEmployee?.name}
+                </p>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label>Basic Salary (₹)</Label>
+                    <Input
+                      data-testid="salary-amount-input"
+                      type="number"
+                      placeholder="50000"
+                      value={salaryAmount}
+                      onChange={(e) => setSalaryAmount(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    data-testid="save-salary-btn"
+                    onClick={handleSetSalary}
+                    disabled={loading}
+                    className="w-full bg-[#00C853] text-white hover:bg-[#00A844]"
+                  >
+                    Save Salary
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
+
+        {/* Payslips Tab */}
+        {activeTab === "payslips" && (
+          <>
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Payslips</h1>
+                <p className="text-gray-500 mt-1">Generate and manage employee payslips</p>
+              </div>
+              <Dialog open={generatePayslipOpen} onOpenChange={setGeneratePayslipOpen}>
+                <DialogTrigger asChild>
+                  <Button data-testid="generate-payslip-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
+                    <Receipt className="h-4 w-4" weight="bold" />
+                    Generate Payslip
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="font-['Outfit']">Generate Payslip</DialogTitle>
+                  </DialogHeader>
+                  <p className="text-sm text-gray-500 -mt-2">Select employee and pay period to generate payslip.</p>
+                  <div className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                      <Label>Employee</Label>
+                      <Select
+                        value={payslipForm.employee_id}
+                        onValueChange={(value) => setPayslipForm({ ...payslipForm, employee_id: value })}
+                      >
+                        <SelectTrigger data-testid="payslip-employee-select">
+                          <SelectValue placeholder="Select employee" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {employees.filter(e => e.role !== "admin" && e.basic_salary > 0).map((emp) => (
+                            <SelectItem key={emp.id} value={emp.id}>
+                              {emp.name} - ₹{emp.basic_salary?.toLocaleString()}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">Only employees with salary set are shown</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Month</Label>
+                        <Select
+                          value={payslipForm.month.toString()}
+                          onValueChange={(value) => setPayslipForm({ ...payslipForm, month: parseInt(value) })}
+                        >
+                          <SelectTrigger data-testid="payslip-month-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {months.map((m) => (
+                              <SelectItem key={m.value} value={m.value.toString()}>{m.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Year</Label>
+                        <Input
+                          data-testid="payslip-year-input"
+                          type="number"
+                          value={payslipForm.year}
+                          onChange={(e) => setPayslipForm({ ...payslipForm, year: parseInt(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      data-testid="submit-generate-payslip"
+                      onClick={handleGeneratePayslip}
+                      disabled={loading}
+                      className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                    >
+                      Generate Payslip
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className="table-header">Employee</th>
+                    <th className="table-header">Pay Period</th>
+                    <th className="table-header">Basic Salary</th>
+                    <th className="table-header">Deductions</th>
+                    <th className="table-header">Net Pay</th>
+                    <th className="table-header">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payslips.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="text-center py-8 text-gray-500">No payslips generated yet</td>
+                    </tr>
+                  ) : (
+                    payslips.map((ps) => (
+                      <tr key={ps.id} className="table-row">
+                        <td className="table-cell">
+                          <p className="font-medium text-gray-900">{ps.employee_name}</p>
+                          <p className="text-xs text-gray-500">{ps.employee_email}</p>
+                        </td>
+                        <td className="table-cell">{ps.month_name} {ps.year}</td>
+                        <td className="table-cell">₹{ps.basic_salary?.toLocaleString()}</td>
+                        <td className="table-cell text-[#FF2E00]">-₹{ps.total_deductions?.toLocaleString()}</td>
+                        <td className="table-cell font-bold text-[#00C853]">₹{ps.net_pay?.toLocaleString()}</td>
+                        <td className="table-cell">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              data-testid={`download-payslip-${ps.id}`}
+                              size="sm"
+                              onClick={() => handleDownloadPayslip(ps.id)}
+                              className="bg-[#002FA7] hover:bg-[#001F70] text-white gap-1"
+                            >
+                              <DownloadSimple className="h-4 w-4" />
+                              PDF
+                            </Button>
+                            <Button
+                              data-testid={`delete-payslip-${ps.id}`}
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeletePayslip(ps.id)}
+                              className="text-gray-500 hover:text-red-500"
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
 

@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -15,6 +16,12 @@ from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
 import secrets
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.units import inch
 
 ROOT_DIR = Path(__file__).parent
 
@@ -98,6 +105,7 @@ attendance_router = APIRouter(prefix="/attendance")
 leave_router = APIRouter(prefix="/leave")
 admin_router = APIRouter(prefix="/admin")
 permission_router = APIRouter(prefix="/permission")
+payslip_router = APIRouter(prefix="/payslip")
 
 # Constants for working hours
 REQUIRED_WORK_HOURS = 8.0  # Minimum 8 hours
@@ -106,6 +114,7 @@ MONTHLY_PERMISSION_HOURS = 2  # 2 hours per month
 MAX_PERMISSION_PER_USE = 1  # Max 1 hour per permission
 SHORT_DAYS_FOR_HALF_LEAVE = 3  # 3 short days = 1 half day leave
 MAX_BREAK_MINUTES = 30  # Maximum 30 minutes break per day
+WORKING_DAYS_PER_MONTH = 22  # Average working days
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -161,6 +170,14 @@ class PermissionRequest(BaseModel):
     duration_minutes: int  # 60 for 1 hour
     reason: str
     date: str  # YYYY-MM-DD
+
+class SalaryUpdate(BaseModel):
+    basic_salary: float
+
+class PayslipGenerate(BaseModel):
+    employee_id: str
+    month: int  # 1-12
+    year: int
 
 # Auth Routes
 @auth_router.post("/register")
@@ -972,6 +989,321 @@ async def get_working_hours_summary(request: Request):
         "short_days_for_half_leave": SHORT_DAYS_FOR_HALF_LEAVE
     }
 
+# Payslip Routes
+@payslip_router.get("/my-payslips")
+async def get_my_payslips(request: Request):
+    user = await get_current_user(request)
+    
+    payslips = await db.payslips.find(
+        {"employee_id": user["_id"]}
+    ).sort("created_at", -1).to_list(100)
+    
+    result = []
+    for ps in payslips:
+        ps["id"] = str(ps["_id"])
+        del ps["_id"]
+        result.append(ps)
+    
+    return result
+
+@payslip_router.get("/download/{payslip_id}")
+async def download_payslip(payslip_id: str, request: Request):
+    user = await get_current_user(request)
+    
+    payslip = await db.payslips.find_one({"_id": ObjectId(payslip_id)})
+    if not payslip:
+        raise HTTPException(status_code=404, detail="Payslip not found")
+    
+    # Check if user owns this payslip or is admin
+    if payslip["employee_id"] != user["_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Generate PDF
+    pdf_buffer = generate_payslip_pdf(payslip)
+    
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=payslip_{payslip['month']}_{payslip['year']}.pdf"
+        }
+    )
+
+def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=50, bottomMargin=50)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title_style = ParagraphStyle(
+        'Title',
+        parent=styles['Heading1'],
+        fontSize=18,
+        alignment=1,
+        spaceAfter=20
+    )
+    elements.append(Paragraph("PAYSLIP", title_style))
+    elements.append(Spacer(1, 10))
+    
+    # Company Info
+    company_style = ParagraphStyle('Company', parent=styles['Normal'], alignment=1, fontSize=10)
+    elements.append(Paragraph("HR Portal Company", company_style))
+    elements.append(Paragraph(f"Payslip for {payslip['month_name']} {payslip['year']}", company_style))
+    elements.append(Spacer(1, 20))
+    
+    # Employee Info
+    emp_data = [
+        ["Employee Name:", payslip['employee_name']],
+        ["Employee ID:", payslip['employee_id'][:8] + "..."],
+        ["Department:", payslip.get('department', 'N/A')],
+        ["Position:", payslip.get('position', 'N/A')],
+        ["Pay Period:", f"{payslip['month_name']} {payslip['year']}"],
+    ]
+    emp_table = Table(emp_data, colWidths=[2*inch, 4*inch])
+    emp_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(emp_table)
+    elements.append(Spacer(1, 20))
+    
+    # Earnings
+    elements.append(Paragraph("EARNINGS", styles['Heading2']))
+    earnings_data = [
+        ["Description", "Amount (₹)"],
+        ["Basic Salary", f"{payslip['basic_salary']:,.2f}"],
+    ]
+    earnings_table = Table(earnings_data, colWidths=[4*inch, 2*inch])
+    earnings_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    elements.append(earnings_table)
+    elements.append(Spacer(1, 15))
+    
+    # Deductions
+    elements.append(Paragraph("DEDUCTIONS", styles['Heading2']))
+    deductions_data = [
+        ["Description", "Amount (₹)"],
+    ]
+    
+    for ded in payslip.get('deduction_details', []):
+        deductions_data.append([ded['description'], f"{ded['amount']:,.2f}"])
+    
+    deductions_data.append(["Total Deductions", f"{payslip['total_deductions']:,.2f}"])
+    
+    ded_table = Table(deductions_data, colWidths=[4*inch, 2*inch])
+    ded_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    elements.append(ded_table)
+    elements.append(Spacer(1, 20))
+    
+    # Net Pay
+    net_data = [
+        ["NET PAY", f"₹ {payslip['net_pay']:,.2f}"]
+    ]
+    net_table = Table(net_data, colWidths=[4*inch, 2*inch])
+    net_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#002FA7')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.whitesmoke),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 12),
+        ('PADDING', (0, 0), (-1, -1), 12),
+    ]))
+    elements.append(net_table)
+    elements.append(Spacer(1, 30))
+    
+    # Footer
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, alignment=1, textColor=colors.grey)
+    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%B %d, %Y')}", footer_style))
+    elements.append(Paragraph("This is a computer-generated payslip and does not require a signature.", footer_style))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+# Admin Payslip Routes
+@admin_router.put("/employees/{employee_id}/salary")
+async def set_employee_salary(employee_id: str, salary_data: SalaryUpdate, request: Request):
+    await require_admin(request)
+    
+    result = await db.users.update_one(
+        {"_id": ObjectId(employee_id)},
+        {"$set": {"basic_salary": salary_data.basic_salary}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    return {"message": "Salary updated successfully"}
+
+@admin_router.get("/employees/{employee_id}/salary")
+async def get_employee_salary(employee_id: str, request: Request):
+    await require_admin(request)
+    
+    employee = await db.users.find_one({"_id": ObjectId(employee_id)}, {"basic_salary": 1})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    return {"basic_salary": employee.get("basic_salary", 0)}
+
+@admin_router.post("/payslip/generate")
+async def generate_payslip(data: PayslipGenerate, request: Request):
+    admin = await require_admin(request)
+    
+    # Get employee
+    employee = await db.users.find_one({"_id": ObjectId(data.employee_id)})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    basic_salary = employee.get("basic_salary", 0)
+    if basic_salary <= 0:
+        raise HTTPException(status_code=400, detail="Employee salary not set")
+    
+    # Check if payslip already exists for this month
+    existing = await db.payslips.find_one({
+        "employee_id": data.employee_id,
+        "month": data.month,
+        "year": data.year
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Payslip already exists for this month")
+    
+    # Calculate deductions
+    deductions = []
+    total_deductions = 0
+    
+    # Get month date range
+    month_start = datetime(data.year, data.month, 1, tzinfo=timezone.utc)
+    if data.month == 12:
+        month_end = datetime(data.year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        month_end = datetime(data.year, data.month + 1, 1, tzinfo=timezone.utc)
+    
+    # Calculate per-day salary
+    per_day_salary = basic_salary / WORKING_DAYS_PER_MONTH
+    half_day_salary = per_day_salary / 2
+    
+    # 1. Half-day leave deductions (from short days)
+    leave_deductions = await db.leave_deductions.find({
+        "user_id": data.employee_id,
+        "date": {
+            "$gte": month_start.isoformat(),
+            "$lt": month_end.isoformat()
+        }
+    }).to_list(100)
+    
+    half_day_deduction_days = sum(d.get("amount", 0) for d in leave_deductions)
+    if half_day_deduction_days > 0:
+        amount = half_day_deduction_days * half_day_salary
+        deductions.append({
+            "description": f"Half-day deduction ({half_day_deduction_days} days)",
+            "amount": round(amount, 2)
+        })
+        total_deductions += amount
+    
+    # 2. Unpaid leave deductions
+    unpaid_leaves = await db.leave_requests.find({
+        "user_id": data.employee_id,
+        "status": "approved",
+        "leave_type": {"$in": ["casual", "sick", "earned"]},
+        "start_date": {
+            "$gte": month_start.strftime("%Y-%m-%d"),
+            "$lt": month_end.strftime("%Y-%m-%d")
+        }
+    }).to_list(100)
+    
+    # Check if leave balance was negative (unpaid)
+    # For simplicity, we'll track leave requests that exceeded balance
+    
+    # 3. Short working days (late attendance penalty)
+    short_days = await db.attendance.count_documents({
+        "user_id": data.employee_id,
+        "date": {
+            "$gte": month_start.strftime("%Y-%m-%d"),
+            "$lt": month_end.strftime("%Y-%m-%d")
+        },
+        "is_short_day": True
+    })
+    
+    # Note: Half-day deductions already account for short days via leave_deductions
+    # So we don't double-count here
+    
+    month_names = ["", "January", "February", "March", "April", "May", "June",
+                   "July", "August", "September", "October", "November", "December"]
+    
+    net_pay = basic_salary - total_deductions
+    
+    payslip_doc = {
+        "employee_id": data.employee_id,
+        "employee_name": employee["name"],
+        "employee_email": employee.get("email", ""),
+        "department": employee.get("department", ""),
+        "position": employee.get("position", ""),
+        "month": data.month,
+        "year": data.year,
+        "month_name": month_names[data.month],
+        "basic_salary": basic_salary,
+        "deduction_details": deductions,
+        "total_deductions": round(total_deductions, 2),
+        "net_pay": round(net_pay, 2),
+        "generated_by": admin["name"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.payslips.insert_one(payslip_doc)
+    payslip_doc["id"] = str(result.inserted_id)
+    payslip_doc.pop("_id", None)
+    
+    return payslip_doc
+
+@admin_router.get("/payslips")
+async def get_all_payslips(request: Request, month: Optional[int] = None, year: Optional[int] = None):
+    await require_admin(request)
+    
+    query = {}
+    if month:
+        query["month"] = month
+    if year:
+        query["year"] = year
+    
+    payslips = await db.payslips.find(query).sort("created_at", -1).to_list(1000)
+    
+    result = []
+    for ps in payslips:
+        ps["id"] = str(ps["_id"])
+        del ps["_id"]
+        result.append(ps)
+    
+    return result
+
+@admin_router.delete("/payslips/{payslip_id}")
+async def delete_payslip(payslip_id: str, request: Request):
+    await require_admin(request)
+    
+    result = await db.payslips.delete_one({"_id": ObjectId(payslip_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Payslip not found")
+    
+    return {"message": "Payslip deleted"}
+
 # Include routers (MUST be after all route definitions)
 api_router.include_router(auth_router)
 api_router.include_router(attendance_router)
@@ -979,6 +1311,7 @@ api_router.include_router(leave_router)
 api_router.include_router(admin_router)
 api_router.include_router(employees_router)
 api_router.include_router(permission_router)
+api_router.include_router(payslip_router)
 
 @api_router.get("/")
 async def root():

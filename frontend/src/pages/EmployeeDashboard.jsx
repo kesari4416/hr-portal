@@ -13,7 +13,7 @@ import { format } from "date-fns";
 import { 
   SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
-  CaretDown, Hourglass, Warning, Timer, ChartBar
+  CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple
 } from "@phosphor-icons/react";
 
 export default function EmployeeDashboard() {
@@ -25,6 +25,7 @@ export default function EmployeeDashboard() {
   const [permissionBalance, setPermissionBalance] = useState({ remaining_minutes: 120, used_minutes: 0 });
   const [permissionRequests, setPermissionRequests] = useState([]);
   const [workingSummary, setWorkingSummary] = useState(null);
+  const [payslips, setPayslips] = useState([]);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -47,14 +48,15 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
         api.get("/attendance/history"),
         api.get("/permission/balance"),
         api.get("/permission/my-requests"),
-        api.get("/attendance/working-hours-summary")
+        api.get("/attendance/working-hours-summary"),
+        api.get("/payslip/my-payslips")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -63,6 +65,7 @@ export default function EmployeeDashboard() {
       setPermissionBalance(permBalRes.data);
       setPermissionRequests(permReqRes.data);
       setWorkingSummary(summaryRes.data);
+      setPayslips(payslipsRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -233,6 +236,25 @@ export default function EmployeeDashboard() {
     }
   };
 
+  const handleDownloadPayslip = async (payslipId) => {
+    try {
+      const response = await api.get(`/payslip/download/${payslipId}`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payslip_${payslipId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Payslip downloaded!");
+    } catch (error) {
+      toast.error("Failed to download payslip");
+    }
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case "approved":
@@ -272,6 +294,13 @@ export default function EmployeeDashboard() {
           >
             <House className="h-5 w-5" weight="duotone" />
             <span>Dashboard</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("payslips")}
+            className={activeTab === "payslips" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <Receipt className="h-5 w-5" weight="duotone" />
+            <span>Payslips</span>
           </button>
           <button
             onClick={() => setActiveTab("summary")}
@@ -935,6 +964,91 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
             </div>
+          </>
+        )}
+
+        {/* Payslips Tab */}
+        {activeTab === "payslips" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">My Payslips</h1>
+              <p className="text-gray-500 mt-1">View and download your salary slips</p>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className="table-header">Pay Period</th>
+                    <th className="table-header">Basic Salary</th>
+                    <th className="table-header">Deductions</th>
+                    <th className="table-header">Net Pay</th>
+                    <th className="table-header">Generated On</th>
+                    <th className="table-header">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payslips.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="text-center py-8 text-gray-500">
+                        No payslips available yet
+                      </td>
+                    </tr>
+                  ) : (
+                    payslips.map((ps) => (
+                      <tr key={ps.id} className="table-row">
+                        <td className="table-cell font-medium">{ps.month_name} {ps.year}</td>
+                        <td className="table-cell">₹{ps.basic_salary?.toLocaleString()}</td>
+                        <td className="table-cell text-[#FF2E00]">-₹{ps.total_deductions?.toLocaleString()}</td>
+                        <td className="table-cell font-bold text-[#00C853]">₹{ps.net_pay?.toLocaleString()}</td>
+                        <td className="table-cell text-sm text-gray-500">
+                          {format(new Date(ps.created_at), "MMM d, yyyy")}
+                        </td>
+                        <td className="table-cell">
+                          <Button
+                            data-testid={`download-payslip-${ps.id}`}
+                            size="sm"
+                            onClick={() => handleDownloadPayslip(ps.id)}
+                            className="bg-[#002FA7] hover:bg-[#001F70] text-white gap-2"
+                          >
+                            <DownloadSimple className="h-4 w-4" />
+                            PDF
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Payslip Details */}
+            {payslips.length > 0 && (
+              <div className="mt-6 bg-white border border-gray-200 rounded-sm p-6">
+                <h2 className="text-lg font-bold text-gray-900 font-['Outfit'] mb-4">Latest Payslip Summary</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="p-4 bg-gray-50 rounded-sm">
+                    <p className="text-sm text-gray-500 mb-1">Basic Salary</p>
+                    <p className="text-2xl font-bold text-gray-900">₹{payslips[0]?.basic_salary?.toLocaleString()}</p>
+                  </div>
+                  <div className="p-4 bg-[#FFEBE6] rounded-sm">
+                    <p className="text-sm text-gray-500 mb-1">Total Deductions</p>
+                    <p className="text-2xl font-bold text-[#FF2E00]">-₹{payslips[0]?.total_deductions?.toLocaleString()}</p>
+                    {payslips[0]?.deduction_details?.length > 0 && (
+                      <ul className="mt-2 text-xs text-gray-500">
+                        {payslips[0].deduction_details.map((d, i) => (
+                          <li key={i}>{d.description}: ₹{d.amount}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="p-4 bg-[#E6FFEE] rounded-sm">
+                    <p className="text-sm text-gray-500 mb-1">Net Pay</p>
+                    <p className="text-2xl font-bold text-[#00C853]">₹{payslips[0]?.net_pay?.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </main>
