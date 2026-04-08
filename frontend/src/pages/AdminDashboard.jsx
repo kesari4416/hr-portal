@@ -58,7 +58,8 @@ export default function AdminDashboard() {
     password: "",
     name: "",
     department: "",
-    position: ""
+    position: "",
+    role: "employee"
   });
 
   const [editForm, setEditForm] = useState({
@@ -67,31 +68,38 @@ export default function AdminDashboard() {
     position: "",
     casual_leave: 0,
     sick_leave: 0,
-    permission_hours: 2
+    permission_hours: 2,
+    role: "employee"
   });
 
   const fetchData = useCallback(async () => {
     try {
-      const [analyticsRes, employeesRes, leaveRes, attendanceRes, permRes, payslipsRes, holidaysRes] = await Promise.all([
+      const promises = [
         api.get("/admin/analytics"),
         api.get("/admin/employees"),
         api.get("/admin/leave-requests"),
         api.get("/admin/attendance"),
         api.get("/admin/permissions"),
-        api.get("/admin/payslips"),
         api.get("/holidays/list")
-      ]);
-      setAnalytics(analyticsRes.data);
-      setEmployees(employeesRes.data);
-      setLeaveRequests(leaveRes.data);
-      setAttendance(attendanceRes.data);
-      setPermissionRequests(permRes.data);
-      setPayslips(payslipsRes.data);
-      setHolidays(holidaysRes.data);
+      ];
+      // Only admins can access payslips
+      if (user?.role === "admin") {
+        promises.push(api.get("/admin/payslips"));
+      }
+      const results = await Promise.all(promises);
+      setAnalytics(results[0].data);
+      setEmployees(results[1].data);
+      setLeaveRequests(results[2].data);
+      setAttendance(results[3].data);
+      setPermissionRequests(results[4].data);
+      setHolidays(results[5].data);
+      if (user?.role === "admin" && results[6]) {
+        setPayslips(results[6].data);
+      }
     } catch (error) {
-      console.error("Error fetching admin data:", error);
+      console.error("Error fetching data:", error);
     }
-  }, [api]);
+  }, [api, user?.role]);
 
   useEffect(() => {
     fetchData();
@@ -108,7 +116,7 @@ export default function AdminDashboard() {
       await api.post("/admin/employees", newEmployee);
       toast.success("Employee added successfully!");
       setAddEmployeeOpen(false);
-      setNewEmployee({ email: "", password: "", name: "", department: "", position: "" });
+      setNewEmployee({ email: "", password: "", name: "", department: "", position: "", role: "employee" });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to add employee");
@@ -197,7 +205,8 @@ export default function AdminDashboard() {
       position: employee.position || "",
       casual_leave: employee.casual_leave || 12,
       sick_leave: employee.sick_leave || 3,
-      permission_hours: employee.permission_hours || 2
+      permission_hours: employee.permission_hours || 2,
+      role: employee.role || "employee"
     });
     setEditEmployeeOpen(true);
   };
@@ -366,15 +375,20 @@ export default function AdminDashboard() {
     { value: 10, label: "October" }, { value: 11, label: "November" }, { value: 12, label: "December" }
   ];
 
-  const navItems = [
+  const isAdmin = user?.role === "admin";
+  const isManager = user?.role === "manager";
+
+  const allNavItems = [
     { id: "overview", label: "Overview", icon: House },
-    { id: "employees", label: "Employees", icon: Users },
-    { id: "payslips", label: "Payslips", icon: Receipt },
+    { id: "employees", label: "Employees", icon: Users, adminOnly: true },
+    { id: "payslips", label: "Payslips", icon: Receipt, adminOnly: true },
     { id: "leaves", label: "Leave Requests", icon: CalendarCheck },
     { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
     { id: "holidays", label: "Holidays", icon: CalendarStar },
   ];
+
+  const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -390,7 +404,7 @@ export default function AdminDashboard() {
             />
             <span className="text-xl font-bold text-gray-900 font-['Outfit']">HR Portal</span>
           </div>
-          <span className="text-xs font-bold text-[#002FA7] uppercase tracking-wider mt-2 block">Admin Panel</span>
+          <span className="text-xs font-bold text-[#002FA7] uppercase tracking-wider mt-2 block">{isAdmin ? "Admin Panel" : "Manager Panel"}</span>
         </div>
 
         {/* Navigation */}
@@ -563,6 +577,18 @@ export default function AdminDashboard() {
                         />
                       </div>
                     </div>
+                    <div className="space-y-2">
+                      <Label>Role</Label>
+                      <Select value={newEmployee.role} onValueChange={(value) => setNewEmployee({ ...newEmployee, role: value })}>
+                        <SelectTrigger data-testid="new-employee-role">
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="employee">Employee</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <Button
                       data-testid="submit-new-employee"
                       onClick={handleAddEmployee}
@@ -624,7 +650,7 @@ export default function AdminDashboard() {
                       </td>
                       <td className="table-cell">
                         <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase ${
-                          emp.role === "admin" ? "bg-[#E5ECFF] text-[#002FA7]" : "bg-gray-100 text-gray-600"
+                          emp.role === "admin" ? "bg-[#E5ECFF] text-[#002FA7]" : emp.role === "manager" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"
                         }`}>
                           {emp.role}
                         </span>
@@ -750,6 +776,18 @@ export default function AdminDashboard() {
                         onChange={(e) => setEditForm({ ...editForm, sick_leave: parseInt(e.target.value) || 0 })}
                       />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select value={editForm.role} onValueChange={(value) => setEditForm({ ...editForm, role: value })}>
+                      <SelectTrigger data-testid="edit-role">
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="employee">Employee</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Button
                     data-testid="save-employee-changes"

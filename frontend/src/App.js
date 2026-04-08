@@ -6,7 +6,7 @@ import EmployeeDashboard from "./pages/EmployeeDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import "./App.css";
 
-const ProtectedRoute = ({ children, requireAdmin = false }) => {
+const ProtectedRoute = ({ children, requireAdminOrManager = false }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -21,7 +21,7 @@ const ProtectedRoute = ({ children, requireAdmin = false }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (requireAdmin && user.role !== "admin") {
+  if (requireAdminOrManager && !["admin", "manager"].includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -40,7 +40,7 @@ const PublicRoute = ({ children }) => {
   }
 
   if (user) {
-    return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />;
+    return <Navigate to={["admin", "manager"].includes(user.role) ? "/admin" : "/dashboard"} replace />;
   }
 
   return children;
@@ -62,7 +62,7 @@ function App() {
             </ProtectedRoute>
           } />
           <Route path="/admin/*" element={
-            <ProtectedRoute requireAdmin>
+            <ProtectedRoute requireAdminOrManager>
               <AdminDashboard />
             </ProtectedRoute>
           } />
