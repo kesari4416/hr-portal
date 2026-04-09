@@ -17,6 +17,13 @@ import {
   CalendarStar, CurrencyCircleDollar
 } from "@phosphor-icons/react";
 
+const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
+const getAvatarUrl = (url) => {
+  if (!url) return "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85";
+  if (url.startsWith("http")) return url;
+  return `${API_BASE}${url}`;
+};
+
 export default function EmployeeDashboard() {
   const { user, logout, api } = useAuth();
   const [attendanceStatus, setAttendanceStatus] = useState({ clocked_in: false, on_break: false, attendance: null });
@@ -330,7 +337,7 @@ export default function EmployeeDashboard() {
         <div className="p-4 border-t border-gray-200">
           <div className="flex items-center gap-3 mb-4">
             <img 
-              src={user?.avatar_url || "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85"}
+              src={getAvatarUrl(user?.avatar_url)}
               alt={user?.name}
               className="h-10 w-10 rounded-full object-cover border border-gray-200"
             />

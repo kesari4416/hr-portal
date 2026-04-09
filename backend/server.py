@@ -1,8 +1,9 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 import aiomysql
 import os
@@ -131,6 +132,13 @@ async def require_admin_or_manager(request: Request) -> dict:
 
 # Create the main app
 app = FastAPI()
+
+# Uploads directory
+UPLOAD_DIR = ROOT_DIR / "uploads" / "avatars"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Serve uploaded files as static
+app.mount("/uploads", StaticFiles(directory=str(ROOT_DIR / "uploads")), name="uploads")
 
 # Create routers
 api_router = APIRouter(prefix="/api")
@@ -696,6 +704,40 @@ async def reset_employee_password(employee_id: str, data: PasswordReset, request
     if result == 0:
         raise HTTPException(status_code=404, detail="Employee not found")
     return {"message": "Password reset successfully"}
+
+@admin_router.post("/employees/{employee_id}/avatar")
+async def upload_employee_avatar(employee_id: str, request: Request, file: UploadFile = File(...)):
+    await require_admin(request)
+    
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP, GIF images allowed")
+    
+    # Validate file size (max 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size must be under 5MB")
+    
+    # Check employee exists
+    emp = await execute_query("SELECT id FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Save file
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
+    filename = f"avatar_{employee_id}.{ext}"
+    filepath = UPLOAD_DIR / filename
+    
+    with open(filepath, "wb") as f:
+        f.write(contents)
+    
+    # Build URL - use FRONTEND_URL for production compatibility
+    avatar_url = f"/uploads/avatars/{filename}"
+    
+    await execute_query("UPDATE users SET avatar_url = %s WHERE id = %s", (avatar_url, int(employee_id)))
+    
+    return {"message": "Avatar uploaded", "avatar_url": avatar_url}
 
 @admin_router.get("/leave-requests")
 async def get_all_leave_requests(request: Request, status: Optional[str] = None):

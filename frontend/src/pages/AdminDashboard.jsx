@@ -10,8 +10,17 @@ import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Key, CalendarStar
+  ClockClockwise, FileXls, Key, CalendarStar, Camera
 } from "@phosphor-icons/react";
+import { useRef } from "react";
+
+const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
+
+const getAvatarUrl = (url) => {
+  if (!url) return "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85";
+  if (url.startsWith("http")) return url;
+  return `${API_BASE}${url}`;
+};
 
 const SHIFTS = {
   general: { name: "General Shift", start: "09:30", end: "17:30" },
@@ -42,6 +51,8 @@ export default function AdminDashboard() {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [salaryAmount, setSalaryAmount] = useState("");
   const [selectedShift, setSelectedShift] = useState("general");
+  const avatarInputRef = useRef(null);
+  const [uploadingAvatarFor, setUploadingAvatarFor] = useState(null);
   const [payslipForm, setPayslipForm] = useState({
     employee_id: "",
     month: new Date().getMonth() + 1,
@@ -174,6 +185,29 @@ export default function AdminDashboard() {
       toast.error(error.response?.data?.detail || "Failed to reset password");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !uploadingAvatarFor) return;
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    setLoading(true);
+    try {
+      await api.post(`/admin/employees/${uploadingAvatarFor}/avatar`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      toast.success("Photo uploaded successfully");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to upload photo");
+    } finally {
+      setLoading(false);
+      setUploadingAvatarFor(null);
+      e.target.value = "";
     }
   };
 
@@ -426,7 +460,7 @@ export default function AdminDashboard() {
         <div className="p-4 border-t border-gray-200">
           <div className="flex items-center gap-3 mb-4">
             <img 
-              src={user?.avatar_url || "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85"}
+              src={getAvatarUrl(user?.avatar_url)}
               alt={user?.name}
               className="h-10 w-10 rounded-full object-cover border border-gray-200"
             />
@@ -603,6 +637,13 @@ export default function AdminDashboard() {
             </div>
 
             {/* Employees Table */}
+            <input
+              type="file"
+              ref={avatarInputRef}
+              className="hidden"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handleAvatarUpload}
+            />
             <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
               <table className="w-full">
                 <thead>
@@ -620,11 +661,26 @@ export default function AdminDashboard() {
                     <tr key={emp.id} className="table-row">
                       <td className="table-cell">
                         <div className="flex items-center gap-3">
-                          <img 
-                            src={emp.avatar_url || "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85"}
-                            alt={emp.name}
-                            className="h-8 w-8 rounded-full object-cover"
-                          />
+                          <div className="relative group">
+                            <img 
+                              src={getAvatarUrl(emp.avatar_url)}
+                              alt={emp.name}
+                              className="h-8 w-8 rounded-full object-cover"
+                            />
+                            {emp.role !== "admin" && (
+                              <button
+                                data-testid={`upload-avatar-${emp.id}`}
+                                onClick={() => {
+                                  setUploadingAvatarFor(emp.id);
+                                  avatarInputRef.current?.click();
+                                }}
+                                className="absolute -bottom-1 -right-1 bg-[#002FA7] text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                title="Upload Photo"
+                              >
+                                <Camera className="h-3 w-3" weight="bold" />
+                              </button>
+                            )}
+                          </div>
                           <div>
                             <p className="font-medium text-gray-900">{emp.name}</p>
                             <p className="text-xs text-gray-500">{emp.email}</p>
