@@ -44,11 +44,11 @@ export default function LoginPage() {
           {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
             <img 
-              src="https://static.prod-images.emergentagent.com/jobs/aaf63ca7-adc6-4c7b-937b-09773c3509ed/images/f54676851e2ae99a51a94037909cd1cec0feddb104a3fbd9c71931cef8478ad0.png" 
-              alt="HR Portal Logo"
-              className="h-10 w-10"
+              src="/sparkcurve-logo.png" 
+              alt="Sparkcurve Logo"
+              className="h-10 w-10 rounded-lg"
             />
-            <span className="text-2xl font-bold text-gray-900 font-['Outfit']">HR Portal</span>
+            <span className="text-2xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
           </div>
 
           {/* Title */}

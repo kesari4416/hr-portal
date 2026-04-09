@@ -14,7 +14,7 @@ import {
   SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
-  CalendarStar, CurrencyCircleDollar
+  CalendarStar, CurrencyCircleDollar, Scroll
 } from "@phosphor-icons/react";
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
@@ -53,6 +53,7 @@ export default function EmployeeDashboard() {
   const [payslips, setPayslips] = useState([]);
   const [myShift, setMyShift] = useState(null);
   const [holidays, setHolidays] = useState([]);
+  const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -75,7 +76,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -85,7 +86,8 @@ export default function EmployeeDashboard() {
         api.get("/attendance/working-hours-summary"),
         api.get("/payslip/my-payslips"),
         api.get("/attendance/my-shift"),
-        api.get("/holidays/list")
+        api.get("/holidays/list"),
+        api.get("/policy/list")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -97,6 +99,7 @@ export default function EmployeeDashboard() {
       setPayslips(payslipsRes.data);
       setMyShift(shiftRes.data);
       setHolidays(holidaysRes.data);
+      setPolicies(policiesRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -309,11 +312,11 @@ export default function EmployeeDashboard() {
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <img 
-              src="https://static.prod-images.emergentagent.com/jobs/aaf63ca7-adc6-4c7b-937b-09773c3509ed/images/f54676851e2ae99a51a94037909cd1cec0feddb104a3fbd9c71931cef8478ad0.png" 
-              alt="HR Portal Logo"
-              className="h-8 w-8"
+              src="/sparkcurve-logo.png" 
+              alt="Sparkcurve Logo"
+              className="h-9 w-9 rounded-lg"
             />
-            <span className="text-xl font-bold text-gray-900 font-['Outfit']">HR Portal</span>
+            <span className="text-xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
           </div>
         </div>
 
@@ -347,6 +350,14 @@ export default function EmployeeDashboard() {
           >
             <CalendarStar className="h-5 w-5" weight="duotone" />
             <span>Holidays</span>
+          </button>
+          <button
+            data-testid="policy-tab"
+            onClick={() => setActiveTab("policy")}
+            className={activeTab === "policy" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <Scroll className="h-5 w-5" weight="duotone" />
+            <span>Company Policy</span>
           </button>
         </nav>
 

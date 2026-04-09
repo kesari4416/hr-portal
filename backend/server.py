@@ -151,6 +151,7 @@ permission_router = APIRouter(prefix="/permission")
 payslip_router = APIRouter(prefix="/payslip")
 reports_router = APIRouter(prefix="/reports")
 holidays_router = APIRouter(prefix="/holidays")
+policy_router = APIRouter(prefix="/policy")
 
 # Constants
 REQUIRED_WORK_HOURS = 8.0
@@ -244,6 +245,20 @@ class ShiftAssign(BaseModel):
 
 class PasswordReset(BaseModel):
     new_password: str
+
+class PolicyCreate(BaseModel):
+    title: str
+    category: str
+    content: str
+    icon: Optional[str] = "article"
+    sort_order: Optional[int] = 0
+
+class PolicyUpdate(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    content: Optional[str] = None
+    icon: Optional[str] = None
+    sort_order: Optional[int] = None
 
 # ============== AUTH ROUTES ==============
 
@@ -1221,6 +1236,51 @@ async def export_attendance_report(request: Request, start_date: str, end_date: 
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename=attendance_{start_date}_to_{end_date}.xlsx"})
 
+# ============== POLICY ROUTES ==============
+
+@policy_router.get("/list")
+async def get_policies():
+    """Get all company policies - accessible to all authenticated users"""
+    rows = await execute_query("SELECT * FROM policies ORDER BY sort_order ASC, id ASC", fetch_all=True)
+    result = []
+    for r in (rows or []):
+        d = dict(r)
+        d["id"] = str(d.pop("id"))
+        result.append(d)
+    return result
+
+@policy_router.post("/create")
+async def create_policy(data: PolicyCreate, request: Request):
+    await require_admin(request)
+    pid = await execute_query(
+        "INSERT INTO policies (title, category, content, icon, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (data.title, data.category, data.content, data.icon, data.sort_order, datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat()),
+        last_id=True
+    )
+    return {"id": str(pid), "title": data.title, "category": data.category, "content": data.content, "icon": data.icon, "sort_order": data.sort_order}
+
+@policy_router.put("/{policy_id}")
+async def update_policy(policy_id: str, data: PolicyUpdate, request: Request):
+    await require_admin(request)
+    update_dict = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No update data")
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    set_clause = ", ".join([f"{k} = %s" for k in update_dict])
+    values = list(update_dict.values()) + [int(policy_id)]
+    result = await execute_query(f"UPDATE policies SET {set_clause} WHERE id = %s", tuple(values))
+    if result == 0:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"message": "Policy updated"}
+
+@policy_router.delete("/{policy_id}")
+async def delete_policy(policy_id: str, request: Request):
+    await require_admin(request)
+    result = await execute_query("DELETE FROM policies WHERE id = %s", (int(policy_id),))
+    if result == 0:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"message": "Policy deleted"}
+
 # ============== HOLIDAY ROUTES ==============
 
 @holidays_router.get("/list")
@@ -1244,6 +1304,7 @@ api_router.include_router(permission_router)
 api_router.include_router(payslip_router)
 api_router.include_router(reports_router)
 api_router.include_router(holidays_router)
+api_router.include_router(policy_router)
 
 @api_router.get("/")
 async def root():
@@ -1393,6 +1454,18 @@ async def init_database():
                     date VARCHAR(64)
                 )
             """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS policies (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    category VARCHAR(100),
+                    content TEXT,
+                    icon VARCHAR(50) DEFAULT 'article',
+                    sort_order INT DEFAULT 0,
+                    created_at VARCHAR(64),
+                    updated_at VARCHAR(64)
+                )
+            """)
 
 @app.on_event("startup")
 async def startup():
@@ -1432,6 +1505,26 @@ async def startup():
             logger.info(f"Admin login ready - Email: {admin_email}, Password: {admin_password}")
         else:
             logger.error("CRITICAL: Admin user not found after seeding!")
+
+        # Seed default policies if none exist
+        policy_count = await execute_query("SELECT COUNT(*) as cnt FROM policies", fetch_one=True)
+        if policy_count and policy_count["cnt"] == 0:
+            now = datetime.now(timezone.utc).isoformat()
+            default_policies = [
+                ("Leave Policy", "Leave", "Casual Leave: 12 days per year\nSick Leave: 3 days per year\nLoss of Pay (LOP): Available when paid leaves are exhausted. Salary will be deducted proportionally for each LOP day taken.\n\nLeave requests must be submitted in advance and approved by your Manager or Admin. Weekends (Saturday & Sunday) and public holidays are excluded from leave day calculations.", "calendar", 1),
+                ("Working Hours", "Attendance", "Standard working hours: 8 hours 30 minutes per day\nMinimum required: 8 hours per day\n\nEmployees working less than 8 hours will be marked as a 'Short Day'. Every 3 short days will result in an automatic deduction of 0.5 day casual leave.", "clock", 2),
+                ("Break Policy", "Attendance", "Maximum break time: 30 minutes per day\nBreaks can be taken in multiple sessions within the allowed limit.\n\nBreak time is deducted from total working hours. Exceeding the 30-minute break limit is not permitted.", "coffee", 3),
+                ("Shift Timings", "Shift", "General Shift: 09:30 AM - 05:30 PM\nMorning Shift: 04:00 AM - 12:00 PM\nAfternoon Shift: 12:00 PM - 08:00 PM\nNight Shift: 08:00 PM - 04:00 AM\n\nShift assignments are managed by the Admin. Once assigned, shift changes require Admin approval.", "moon", 4),
+                ("Permission Hours", "Permission", "Monthly allowance: 2 hours\nMaximum per use: 1 hour\n\nPermission requests must be submitted with a valid reason. Unused permission hours do not carry forward to the next month.", "hourglass", 5),
+                ("Holiday Policy", "Holiday", "The company observes 12 public holidays per year.\nSaturday and Sunday are weekly holidays for all employees.\n\nEmployees cannot clock in on weekends or public holidays. The complete holiday list is available in the Holidays tab.", "flag", 6),
+                ("Payslip", "Payroll", "Payslips are generated monthly by the Admin.\nDeductions include: Half-day deductions for short working days, Loss of Pay deductions.\n\nEmployees can download their payslips in PDF format from the Payslips section.", "receipt", 7),
+            ]
+            for title, category, content, icon, order in default_policies:
+                await execute_query(
+                    "INSERT INTO policies (title, category, content, icon, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (title, category, content, icon, order, now, now)
+                )
+            logger.info("Default company policies seeded")
 
     except Exception as e:
         logger.error(f"STARTUP ERROR: {str(e)}")

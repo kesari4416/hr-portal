@@ -10,7 +10,7 @@ import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Key, CalendarStar, Camera
+  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple
 } from "@phosphor-icons/react";
 import { useRef } from "react";
 
@@ -56,6 +56,10 @@ export default function AdminDashboard() {
   const [attendance, setAttendance] = useState([]);
   const [payslips, setPayslips] = useState([]);
   const [holidays, setHolidays] = useState([]);
+  const [policies, setPolicies] = useState([]);
+  const [policyDialogOpen, setPolicyDialogOpen] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState(null);
+  const [policyForm, setPolicyForm] = useState({ title: "", category: "", content: "", icon: "article", sort_order: 0 });
   const [loading, setLoading] = useState(false);
   const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
   const [editEmployeeOpen, setEditEmployeeOpen] = useState(false);
@@ -108,7 +112,8 @@ export default function AdminDashboard() {
         api.get("/admin/leave-requests"),
         api.get("/admin/attendance"),
         api.get("/admin/permissions"),
-        api.get("/holidays/list")
+        api.get("/holidays/list"),
+        api.get("/policy/list")
       ];
       // Only admins can access payslips
       if (user?.role === "admin") {
@@ -121,8 +126,9 @@ export default function AdminDashboard() {
       setAttendance(results[3].data);
       setPermissionRequests(results[4].data);
       setHolidays(results[5].data);
-      if (user?.role === "admin" && results[6]) {
-        setPayslips(results[6].data);
+      setPolicies(results[6].data);
+      if (user?.role === "admin" && results[7]) {
+        setPayslips(results[7].data);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -225,6 +231,42 @@ export default function AdminDashboard() {
       setLoading(false);
       setUploadingAvatarFor(null);
       e.target.value = "";
+    }
+  };
+
+  const handleSavePolicy = async () => {
+    if (!policyForm.title || !policyForm.content || !policyForm.category) {
+      toast.error("Title, category and content are required");
+      return;
+    }
+    setLoading(true);
+    try {
+      if (editingPolicy) {
+        await api.put(`/policy/${editingPolicy.id}`, policyForm);
+        toast.success("Policy updated");
+      } else {
+        await api.post("/policy/create", policyForm);
+        toast.success("Policy created");
+      }
+      setPolicyDialogOpen(false);
+      setEditingPolicy(null);
+      setPolicyForm({ title: "", category: "", content: "", icon: "article", sort_order: 0 });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to save policy");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeletePolicy = async (policyId) => {
+    if (!window.confirm("Delete this policy?")) return;
+    try {
+      await api.delete(`/policy/${policyId}`);
+      toast.success("Policy deleted");
+      fetchData();
+    } catch (error) {
+      toast.error("Failed to delete policy");
     }
   };
 
@@ -437,6 +479,7 @@ export default function AdminDashboard() {
     { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
     { id: "holidays", label: "Holidays", icon: CalendarStar },
+    { id: "policy", label: "Company Policy", icon: Scroll },
   ];
 
   const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
@@ -449,11 +492,11 @@ export default function AdminDashboard() {
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <img 
-              src="https://static.prod-images.emergentagent.com/jobs/aaf63ca7-adc6-4c7b-937b-09773c3509ed/images/f54676851e2ae99a51a94037909cd1cec0feddb104a3fbd9c71931cef8478ad0.png" 
-              alt="HR Portal Logo"
-              className="h-8 w-8"
+              src="/sparkcurve-logo.png" 
+              alt="Sparkcurve Logo"
+              className="h-9 w-9 rounded-lg"
             />
-            <span className="text-xl font-bold text-gray-900 font-['Outfit']">HR Portal</span>
+            <span className="text-xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
           </div>
           <span className="text-xs font-bold text-[#002FA7] uppercase tracking-wider mt-2 block">{isAdmin ? "Admin Panel" : "Manager Panel"}</span>
         </div>
@@ -1448,6 +1491,144 @@ export default function AdminDashboard() {
             <div className="mt-4 text-sm text-gray-500">
               Total public holidays: <strong>{holidays.length}</strong>
             </div>
+          </>
+        )}
+
+        {/* Company Policy Tab */}
+        {activeTab === "policy" && (
+          <>
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Company Policy</h1>
+                <p className="text-gray-500 mt-1">Rules and guidelines for all employees</p>
+              </div>
+              {isAdmin && (
+                <Button
+                  data-testid="add-policy-btn"
+                  onClick={() => {
+                    setEditingPolicy(null);
+                    setPolicyForm({ title: "", category: "", content: "", icon: "article", sort_order: policies.length + 1 });
+                    setPolicyDialogOpen(true);
+                  }}
+                  className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2"
+                >
+                  <Plus className="h-4 w-4" /> Add Policy
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {policies.map((policy) => (
+                <div key={policy.id} className="bg-white border border-gray-200 rounded-sm p-6 hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-[#E5ECFF] flex items-center justify-center">
+                        <Scroll className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900 font-['Outfit']">{policy.title}</h3>
+                        <span className="text-xs font-medium text-[#002FA7] bg-[#E5ECFF] px-2 py-0.5 rounded-full">{policy.category}</span>
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          data-testid={`edit-policy-${policy.id}`}
+                          onClick={() => {
+                            setEditingPolicy(policy);
+                            setPolicyForm({ title: policy.title, category: policy.category, content: policy.content, icon: policy.icon || "article", sort_order: policy.sort_order || 0 });
+                            setPolicyDialogOpen(true);
+                          }}
+                          className="text-gray-400 hover:text-[#002FA7] h-8 w-8 p-0"
+                        >
+                          <PencilLine className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          data-testid={`delete-policy-${policy.id}`}
+                          onClick={() => handleDeletePolicy(policy.id)}
+                          className="text-gray-400 hover:text-red-500 h-8 w-8 p-0"
+                        >
+                          <TrashSimple className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-600 whitespace-pre-line leading-relaxed">
+                    {policy.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {policies.length === 0 && (
+              <div className="text-center py-16 text-gray-400">
+                <Scroll className="h-12 w-12 mx-auto mb-3" weight="duotone" />
+                <p className="font-medium">No policies added yet</p>
+                {isAdmin && <p className="text-sm mt-1">Click "Add Policy" to create company policies</p>}
+              </div>
+            )}
+
+            {/* Policy Add/Edit Dialog */}
+            <Dialog open={policyDialogOpen} onOpenChange={setPolicyDialogOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit']">
+                    {editingPolicy ? "Edit Policy" : "Add New Policy"}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-2">
+                    <Label>Title</Label>
+                    <Input
+                      data-testid="policy-title-input"
+                      placeholder="e.g., Leave Policy"
+                      value={policyForm.title}
+                      onChange={(e) => setPolicyForm({ ...policyForm, title: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select value={policyForm.category} onValueChange={(v) => setPolicyForm({ ...policyForm, category: v })}>
+                      <SelectTrigger data-testid="policy-category-select">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Leave">Leave</SelectItem>
+                        <SelectItem value="Attendance">Attendance</SelectItem>
+                        <SelectItem value="Shift">Shift</SelectItem>
+                        <SelectItem value="Permission">Permission</SelectItem>
+                        <SelectItem value="Holiday">Holiday</SelectItem>
+                        <SelectItem value="Payroll">Payroll</SelectItem>
+                        <SelectItem value="General">General</SelectItem>
+                        <SelectItem value="Conduct">Conduct</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Content</Label>
+                    <textarea
+                      data-testid="policy-content-input"
+                      className="flex min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      placeholder="Write the policy details here..."
+                      value={policyForm.content}
+                      onChange={(e) => setPolicyForm({ ...policyForm, content: e.target.value })}
+                    />
+                  </div>
+                  <Button
+                    data-testid="save-policy-btn"
+                    onClick={handleSavePolicy}
+                    disabled={loading}
+                    className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                  >
+                    {editingPolicy ? "Update Policy" : "Add Policy"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </>
         )}
       </main>
