@@ -363,3 +363,47 @@ hr-portal/
 | Login fails after deploy       | Ensure cookies work: check `secure` flag & `samesite`     |
 | Tables not created             | Backend auto-creates on startup; check MySQL permissions   |
 | Frontend blank after build     | Ensure `REACT_APP_BACKEND_URL` was set before `yarn build`|
+
+### Cannot Login? Follow these steps:
+
+**Step 1: Check if backend is running**
+```bash
+curl http://your-server:8001/api/health
+# Expected: {"status":"ok","database":"connected","users_count":1}
+```
+
+**Step 2: If database is disconnected, check MySQL**
+```bash
+sudo systemctl status mariadb
+# If not running:
+sudo systemctl start mariadb
+```
+
+**Step 3: Verify database and user exist**
+```bash
+mysql -u root -e "SHOW DATABASES;" | grep hr_portal
+mysql -u hruser -phrpass123 hr_portal -e "SELECT id, email, role FROM users;"
+```
+
+**Step 4: If users table is empty, restart backend**
+```bash
+# The backend auto-creates tables and seeds admin on startup
+sudo systemctl restart hr-portal-backend
+# Check logs:
+sudo journalctl -u hr-portal-backend -n 50
+# You should see: "Admin login ready - Email: admin@hrportal.com"
+```
+
+**Step 5: If still not working, run the SQL setup manually**
+```bash
+mysql -u root < database_setup.sql
+sudo systemctl restart hr-portal-backend
+```
+
+**Step 6: Test login directly with curl**
+```bash
+curl -X POST http://your-server:8001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@hrportal.com","password":"Admin@123"}'
+# Expected: JSON with id, email, name, role
+```

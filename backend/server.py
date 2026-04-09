@@ -1216,12 +1216,29 @@ api_router.include_router(holidays_router)
 async def root():
     return {"message": "HR Portal API"}
 
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint to verify DB connection"""
+    try:
+        result = await execute_query("SELECT COUNT(*) as cnt FROM users", fetch_one=True)
+        return {"status": "ok", "database": "connected", "users_count": result["cnt"] if result else 0}
+    except Exception as e:
+        return {"status": "error", "database": "disconnected", "error": str(e)}
+
 app.include_router(api_router)
 
-# CORS
+# CORS - Allow frontend URL
+frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+allowed_origins = [frontend_url]
+# Also allow without trailing slash
+if frontend_url.endswith("/"):
+    allowed_origins.append(frontend_url.rstrip("/"))
+else:
+    allowed_origins.append(frontend_url + "/")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.environ.get("FRONTEND_URL", "http://localhost:3000")],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1346,24 +1363,47 @@ async def init_database():
 
 @app.on_event("startup")
 async def startup():
-    await init_database()
+    import traceback
+    try:
+        logger.info("Connecting to MySQL...")
+        logger.info(f"  Host: {os.environ.get('MYSQL_HOST', 'localhost')}")
+        logger.info(f"  Port: {os.environ.get('MYSQL_PORT', '3306')}")
+        logger.info(f"  Database: {os.environ.get('MYSQL_DB', 'hr_portal')}")
+        logger.info(f"  User: {os.environ.get('MYSQL_USER', 'hruser')}")
 
-    # Seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@hrportal.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@123")
+        await init_database()
+        logger.info("All tables created/verified successfully")
 
-    existing = await execute_query("SELECT id, password_hash FROM users WHERE email = %s", (admin_email,), fetch_one=True)
-    if existing is None:
-        hashed = hash_password(admin_password)
-        await execute_query(
-            """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay)
-               VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', %s, %s, 12, 3, 0)""",
-            (admin_email, hashed, AVATAR_URLS[0], datetime.now(timezone.utc).isoformat())
-        )
-        logger.info(f"Admin user created: {admin_email}")
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await execute_query("UPDATE users SET password_hash = %s WHERE email = %s", (hash_password(admin_password), admin_email))
-        logger.info("Admin password updated")
+        # Seed admin
+        admin_email = os.environ.get("ADMIN_EMAIL", "admin@hrportal.com")
+        admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@123")
+
+        existing = await execute_query("SELECT id, password_hash FROM users WHERE email = %s", (admin_email,), fetch_one=True)
+        if existing is None:
+            hashed = hash_password(admin_password)
+            await execute_query(
+                """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay)
+                   VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', %s, %s, 12, 3, 0)""",
+                (admin_email, hashed, AVATAR_URLS[0], datetime.now(timezone.utc).isoformat())
+            )
+            logger.info(f"Admin user created: {admin_email} / {admin_password}")
+        elif not verify_password(admin_password, existing["password_hash"]):
+            await execute_query("UPDATE users SET password_hash = %s WHERE email = %s", (hash_password(admin_password), admin_email))
+            logger.info("Admin password updated")
+        else:
+            logger.info(f"Admin user exists: {admin_email}")
+
+        # Verify admin can login
+        admin_check = await execute_query("SELECT id, email, role FROM users WHERE email = %s AND role = 'admin'", (admin_email,), fetch_one=True)
+        if admin_check:
+            logger.info(f"Admin login ready - Email: {admin_email}, Password: {admin_password}")
+        else:
+            logger.error("CRITICAL: Admin user not found after seeding!")
+
+    except Exception as e:
+        logger.error(f"STARTUP ERROR: {str(e)}")
+        logger.error(traceback.format_exc())
+        logger.error("Make sure MySQL is running and .env has correct MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB")
 
 @app.on_event("shutdown")
 async def shutdown():
