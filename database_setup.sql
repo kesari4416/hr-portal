@@ -2,7 +2,7 @@
 -- HR PORTAL - MySQL Database Setup Script
 -- =============================================
 -- Run this script to create the database, user and all tables
--- Command: mysql -u root < database_setup.sql
+-- Command: sudo mysql -u root < database_setup.sql
 -- =============================================
 
 -- Create database
@@ -144,6 +144,27 @@ CREATE TABLE IF NOT EXISTS leave_deductions (
 );
 
 -- =============================================
+-- 8. POLICIES TABLE
+-- Company policies editable by Admin
+-- =============================================
+CREATE TABLE IF NOT EXISTS policies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(100),
+    content TEXT,
+    icon VARCHAR(50) DEFAULT 'article',
+    sort_order INT DEFAULT 0,
+    created_at VARCHAR(64),
+    updated_at VARCHAR(64)
+);
+
+-- =============================================
 -- VERIFY TABLES
 -- =============================================
 SHOW TABLES;
+
+-- =============================================
+-- NOTE: Admin user and default policies are 
+-- auto-seeded when the backend starts.
+-- Just run: python server.py or use gunicorn
+-- =============================================

@@ -30,7 +30,18 @@ cd hr-portal
 
 ---
 
-## 2. Database Setup
+## Quick Setup (One Command)
+
+```bash
+chmod +x setup.sh
+sudo ./setup.sh
+```
+
+This will install MariaDB (if missing), create the database, install all dependencies, and create `.env` files.
+
+---
+
+## 2. Database Setup (Manual)
 
 ### Install MySQL / MariaDB
 
