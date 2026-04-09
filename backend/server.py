@@ -197,12 +197,6 @@ SHIFTS = {
     "night": {"name": "Night Shift", "start": "20:00", "end": "04:00"}
 }
 
-AVATAR_URLS = [
-    "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85",
-    "https://images.pexels.com/photos/14589344/pexels-photo-14589344.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-    "https://images.pexels.com/photos/36645466/pexels-photo-36645466.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
-]
-
 # Pydantic Models
 class UserRegister(BaseModel):
     email: EmailStr
@@ -261,12 +255,10 @@ async def register(user_data: UserRegister, response: Response):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed = hash_password(user_data.password)
-    avatar_url = AVATAR_URLS[hash(email) % len(AVATAR_URLS)]
-
     user_id = await execute_query(
         """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 12, 3, 0, %s, 0, '')""",
-        (email, hashed, user_data.name, "employee", user_data.department, user_data.position, avatar_url, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS),
+           VALUES (%s, %s, %s, %s, %s, %s, '', %s, 12, 3, 0, %s, 0, '')""",
+        (email, hashed, user_data.name, "employee", user_data.department, user_data.position, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS),
         last_id=True
     )
 
@@ -275,7 +267,7 @@ async def register(user_data: UserRegister, response: Response):
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
 
-    return {"id": str(user_id), "email": email, "name": user_data.name, "role": "employee", "department": user_data.department, "position": user_data.position, "avatar_url": avatar_url}
+    return {"id": str(user_id), "email": email, "name": user_data.name, "role": "employee", "department": user_data.department, "position": user_data.position, "avatar_url": ""}
 
 @auth_router.post("/login")
 async def login(user_data: UserLogin, response: Response):
@@ -654,16 +646,15 @@ async def create_employee(user_data: UserRegister, request: Request):
 
     role = user_data.role if user_data.role in ("employee", "manager") else "employee"
     hashed = hash_password(user_data.password)
-    avatar_url = AVATAR_URLS[hash(email) % len(AVATAR_URLS)]
 
     user_id = await execute_query(
         """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 12, 3, 0, %s, 0, '')""",
-        (email, hashed, user_data.name, role, user_data.department, user_data.position, avatar_url, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS),
+           VALUES (%s, %s, %s, %s, %s, %s, '', %s, 12, 3, 0, %s, 0, '')""",
+        (email, hashed, user_data.name, role, user_data.department, user_data.position, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS),
         last_id=True
     )
 
-    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": avatar_url, "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": ""}
+    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": ""}
 
 @admin_router.put("/employees/{employee_id}")
 async def update_employee(employee_id: str, update_data: EmployeeUpdate, request: Request):
@@ -1425,8 +1416,8 @@ async def startup():
             hashed = hash_password(admin_password)
             await execute_query(
                 """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay)
-                   VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', %s, %s, 12, 3, 0)""",
-                (admin_email, hashed, AVATAR_URLS[0], datetime.now(timezone.utc).isoformat())
+                   VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', '', %s, 12, 3, 0)""",
+                (admin_email, hashed, datetime.now(timezone.utc).isoformat())
             )
             logger.info(f"Admin user created: {admin_email} / {admin_password}")
         elif not verify_password(admin_password, existing["password_hash"]):

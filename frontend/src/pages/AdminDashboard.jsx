@@ -17,9 +17,26 @@ import { useRef } from "react";
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
 
 const getAvatarUrl = (url) => {
-  if (!url) return "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NTY0NjY4M3ww&ixlib=rb-4.1.0&q=85";
+  if (!url || url === "") return null;
   if (url.startsWith("http")) return url;
   return `${API_BASE}${url}`;
+};
+
+const getInitials = (name) => {
+  if (!name) return "?";
+  return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+};
+
+const Avatar = ({ url, name, size = "h-8 w-8", textSize = "text-xs" }) => {
+  const src = getAvatarUrl(url);
+  if (src) {
+    return <img src={src} alt={name} className={`${size} rounded-full object-cover`} />;
+  }
+  return (
+    <div className={`${size} rounded-full bg-[#002FA7] text-white flex items-center justify-center font-bold ${textSize}`}>
+      {getInitials(name)}
+    </div>
+  );
 };
 
 const SHIFTS = {
@@ -459,11 +476,7 @@ export default function AdminDashboard() {
         {/* User Info */}
         <div className="p-4 border-t border-gray-200">
           <div className="flex items-center gap-3 mb-4">
-            <img 
-              src={getAvatarUrl(user?.avatar_url)}
-              alt={user?.name}
-              className="h-10 w-10 rounded-full object-cover border border-gray-200"
-            />
+            <Avatar url={user?.avatar_url} name={user?.name} size="h-10 w-10" textSize="text-sm" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
               <p className="text-xs text-gray-500 truncate">Administrator</p>
@@ -662,11 +675,7 @@ export default function AdminDashboard() {
                       <td className="table-cell">
                         <div className="flex items-center gap-3">
                           <div className="relative group">
-                            <img 
-                              src={getAvatarUrl(emp.avatar_url)}
-                              alt={emp.name}
-                              className="h-8 w-8 rounded-full object-cover"
-                            />
+                            <Avatar url={emp.avatar_url} name={emp.name} />
                             {emp.role !== "admin" && (
                               <button
                                 data-testid={`upload-avatar-${emp.id}`}
