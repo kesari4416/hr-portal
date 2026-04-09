@@ -1106,6 +1106,47 @@ export default function EmployeeDashboard() {
           </>
         )}
 
+        {/* Company Policy Tab */}
+        {activeTab === "policy" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Company Policy</h1>
+              <p className="text-gray-500 mt-1">Read and understand our company guidelines</p>
+            </div>
+
+            {policies.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-sm p-12 text-center">
+                <Scroll className="h-12 w-12 text-gray-300 mx-auto mb-4" weight="duotone" />
+                <p className="text-gray-500">No company policies have been added yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {policies.map((policy) => (
+                  <div key={policy.id} data-testid={`policy-card-${policy.id}`} className="bg-white border border-gray-200 rounded-sm p-6">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-lg bg-[#E5ECFF] flex items-center justify-center flex-shrink-0">
+                        <Scroll className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900 font-['Outfit']">{policy.title}</h3>
+                        <span className="text-xs font-medium text-[#002FA7] bg-[#E5ECFF] px-2 py-0.5 rounded-full">{policy.category}</span>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed pl-[52px]">
+                      {policy.content}
+                    </div>
+                    {policy.updated_at && (
+                      <p className="text-xs text-gray-400 mt-3 pl-[52px]">
+                        Last updated: {format(new Date(policy.updated_at), "MMM d, yyyy")}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {/* Holidays Tab */}
         {activeTab === "holidays" && (
           <>
