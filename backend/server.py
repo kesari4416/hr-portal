@@ -304,7 +304,7 @@ async def login(user_data: UserLogin, response: Response):
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/")
 
-    return {"id": str(user["id"]), "email": email, "name": user["name"], "role": user["role"], "department": user.get("department", "General"), "position": user.get("position", "Employee"), "avatar_url": user.get("avatar_url")}
+    return {"id": str(user["id"]), "email": email, "name": user["name"], "role": user["role"], "department": user.get("department", "General"), "position": user.get("position", "Employee"), "avatar_url": user.get("avatar_url"), "employee_code": user.get("employee_code", "")}
 
 @auth_router.post("/logout")
 async def logout(response: Response):
@@ -649,7 +649,7 @@ async def cancel_leave_request(leave_id: str, request: Request):
 @admin_router.get("/employees")
 async def get_all_employees(request: Request):
     await require_admin_or_manager(request)
-    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary FROM users ORDER BY created_at DESC", fetch_all=True)
+    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code FROM users ORDER BY created_at DESC", fetch_all=True)
     result = []
     for emp in (rows or []):
         e = dict(emp)
@@ -668,14 +668,24 @@ async def create_employee(user_data: UserRegister, request: Request):
     role = user_data.role if user_data.role in ("employee", "manager") else "employee"
     hashed = hash_password(user_data.password)
 
+    # Generate next employee code (SC24001, SC24002, ...)
+    max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
+    next_num = 24001
+    if max_code and max_code["employee_code"]:
+        try:
+            next_num = int(max_code["employee_code"][2:]) + 1
+        except ValueError:
+            pass
+    employee_code = f"SC{next_num}"
+
     user_id = await execute_query(
-        """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift)
-           VALUES (%s, %s, %s, %s, %s, %s, '', %s, 12, 3, 0, %s, 0, '')""",
-        (email, hashed, user_data.name, role, user_data.department, user_data.position, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS),
+        """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, employee_code)
+           VALUES (%s, %s, %s, %s, %s, %s, '', %s, 12, 3, 0, %s, 0, '', %s)""",
+        (email, hashed, user_data.name, role, user_data.department, user_data.position, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS, employee_code),
         last_id=True
     )
 
-    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": ""}
+    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code}
 
 @admin_router.put("/employees/{employee_id}")
 async def update_employee(employee_id: str, update_data: EmployeeUpdate, request: Request):
@@ -692,7 +702,7 @@ async def update_employee(employee_id: str, update_data: EmployeeUpdate, request
     values = list(update_dict.values()) + [int(employee_id)]
     await execute_query(f"UPDATE users SET {set_clause} WHERE id = %s", tuple(values))
 
-    emp = await execute_query("SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
+    emp = await execute_query("SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     emp["id"] = str(emp.pop("id"))
@@ -995,6 +1005,9 @@ async def download_payslip(payslip_id: str, request: Request):
     ps = dict(payslip)
     if isinstance(ps.get("deduction_details"), str):
         ps["deduction_details"] = json.loads(ps["deduction_details"])
+    # Fetch employee_code for the payslip
+    emp = await execute_query("SELECT employee_code FROM users WHERE id = %s", (ps["employee_id"],), fetch_one=True)
+    ps["employee_code"] = emp["employee_code"] if emp else ""
     pdf_buffer = generate_payslip_pdf(ps)
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=payslip_{ps['month']}_{ps['year']}.pdf"})
 
@@ -1086,13 +1099,13 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
         pay_year += 1
     pay_date = f"{5:02d}/{pay_month:02d}/{pay_year}"
 
-    emp_id = str(payslip.get('employee_id', ''))
+    emp_code = payslip.get('employee_code', '') or str(payslip.get('employee_id', ''))
     col_w = page_width / 4
 
     emp_rows = [
         [Paragraph("Employee Name", label_s), Paragraph(f": {payslip.get('employee_name', '')}", value_s),
          Paragraph("Pay Period", label_s), Paragraph(f": {payslip['month_name']} {payslip['year']}", value_s)],
-        [Paragraph("Employee ID", label_s), Paragraph(f": {emp_id}", value_s),
+        [Paragraph("Employee ID", label_s), Paragraph(f": {emp_code}", value_s),
          Paragraph("Pay Date", label_s), Paragraph(f": {pay_date}", value_s)],
         [Paragraph("Department", label_s), Paragraph(f": {payslip.get('department', 'N/A')}", value_s),
          Paragraph("Paid Days", label_s), Paragraph(f": {paid_days}", value_s)],
@@ -1567,7 +1580,8 @@ async def init_database():
                     permission_hours FLOAT DEFAULT 2,
                     half_day_leave FLOAT DEFAULT 0,
                     shift VARCHAR(50) DEFAULT '',
-                    basic_salary FLOAT DEFAULT 0
+                    basic_salary FLOAT DEFAULT 0,
+                    employee_code VARCHAR(20) DEFAULT ''
                 )
             """)
             await cur.execute("""
@@ -1683,6 +1697,29 @@ async def startup():
         await init_database()
         logger.info("All tables created/verified successfully")
 
+        # Migration: Add employee_code column if missing
+        try:
+            await execute_query("SELECT employee_code FROM users LIMIT 1", fetch_one=True)
+        except Exception:
+            await execute_query("ALTER TABLE users ADD COLUMN employee_code VARCHAR(20) DEFAULT ''")
+            logger.info("Added employee_code column to users table")
+
+        # Backfill employee_code for existing users without one
+        users_without_code = await execute_query("SELECT id FROM users WHERE employee_code IS NULL OR employee_code = '' ORDER BY id", fetch_all=True)
+        if users_without_code:
+            max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
+            next_num = 24001
+            if max_code and max_code["employee_code"]:
+                try:
+                    next_num = int(max_code["employee_code"][2:]) + 1
+                except ValueError:
+                    pass
+            for u in users_without_code:
+                code = f"SC{next_num}"
+                await execute_query("UPDATE users SET employee_code = %s WHERE id = %s", (code, u["id"]))
+                next_num += 1
+            logger.info(f"Backfilled employee_code for {len(users_without_code)} users")
+
         # Seed admin
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@hrportal.com")
         admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@123")
@@ -1691,8 +1728,8 @@ async def startup():
         if existing is None:
             hashed = hash_password(admin_password)
             await execute_query(
-                """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay)
-                   VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', '', %s, 12, 3, 0)""",
+                """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, employee_code)
+                   VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', '', %s, 12, 3, 0, 'SC24001')""",
                 (admin_email, hashed, datetime.now(timezone.utc).isoformat())
             )
             logger.info(f"Admin user created: {admin_email} / {admin_password}")
