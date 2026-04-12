@@ -18,6 +18,7 @@ click==8.3.2
 cryptography==46.0.6
 distro==1.9.0
 dnspython==2.8.0
+docopt==0.6.2
 ecdsa==0.19.2
 email-validator==2.3.0
 emergentintegrations==0.1.0
@@ -66,6 +67,7 @@ msal==1.35.1
 multidict==6.7.1
 mypy==1.20.0
 mypy_extensions==1.1.0
+num2words==0.5.14
 numpy==2.4.4
 oauthlib==3.3.1
 openai==1.99.9
