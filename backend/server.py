@@ -24,7 +24,7 @@ COOKIE_SAMESITE = "none" if IS_HTTPS else "lax"
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image as RLImage
 from reportlab.lib.units import inch, mm
 from num2words import num2words
 from openpyxl import Workbook
@@ -1000,126 +1000,165 @@ async def download_payslip(payslip_id: str, request: Request):
 
 def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=30, bottomMargin=30, leftMargin=40, rightMargin=40)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=25, bottomMargin=25, leftMargin=35, rightMargin=35)
     elements = []
     styles = getSampleStyleSheet()
-    page_width = A4[0] - 80  # total usable width
+    page_width = A4[0] - 70
 
-    # Colors
-    primary_blue = colors.HexColor('#1a237e')
-    light_grey = colors.HexColor('#f5f5f5')
-    border_grey = colors.HexColor('#e0e0e0')
-    text_dark = colors.HexColor('#212121')
-    text_grey = colors.HexColor('#757575')
+    # Colors matching the reference
+    dark_text = colors.HexColor('#1a1a2e')
+    medium_text = colors.HexColor('#4a4a5a')
+    light_text = colors.HexColor('#8a8a9a')
+    header_bg = colors.HexColor('#f7f7fa')
+    border_color = colors.HexColor('#e0e0e8')
+    green_bg = colors.HexColor('#e8f5e9')
+    green_border = colors.HexColor('#4caf50')
+    white = colors.white
 
-    # ============ COMPANY HEADER ============
-    company_name_style = ParagraphStyle('CompanyName', parent=styles['Normal'], fontSize=14, fontName='Helvetica-Bold', textColor=primary_blue, leading=18)
-    company_addr_style = ParagraphStyle('CompanyAddr', parent=styles['Normal'], fontSize=8, textColor=text_grey, leading=11)
-    
-    elements.append(Paragraph("SPARKCURV TECHNOLOGIES PVT LIMITED", company_name_style))
-    elements.append(Spacer(1, 4))
-    elements.append(Paragraph("64/3 Thompson Street, Palace Road, Nagercoil, Tamil Nadu 629001", company_addr_style))
+    # ============ HEADER: Logo + Company + Net Pay ============
+    logo_path = os.path.join(os.path.dirname(__file__), "uploads", "sparkcurv-logo.jpg")
+
+    # Company info (left side)
+    company_name_style = ParagraphStyle('CN', fontSize=13, fontName='Helvetica-Bold', textColor=dark_text, leading=16)
+    company_addr_style = ParagraphStyle('CA', fontSize=8, textColor=light_text, leading=11)
+
+    company_block = []
+    company_block.append(Paragraph("SPARKCURV TECHNOLOGIES PVT LIMITED", company_name_style))
+    company_block.append(Spacer(1, 3))
+    company_block.append(Paragraph("64/3 Thompson Street, Palace Road, Nagercoil, Tamil Nadu 629001", company_addr_style))
+
+    # Net pay (right side)
+    net_pay = payslip.get('net_pay', 0) or 0
+    net_label_style = ParagraphStyle('NL', fontSize=8, textColor=light_text, alignment=2)
+    net_amount_style = ParagraphStyle('NA', fontSize=16, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
+
+    right_block = []
+    right_block.append(Paragraph("Employee Net Pay", net_label_style))
+    right_block.append(Spacer(1, 2))
+    right_block.append(Paragraph(f"Rs. {net_pay:,.2f}", net_amount_style))
+
+    # Payslip month under net pay
+    month_label_style = ParagraphStyle('ML', fontSize=8, textColor=light_text, alignment=2, spaceBefore=6)
+    month_value_style = ParagraphStyle('MV', fontSize=11, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
+    right_block.append(Paragraph("Payslip For the Month", month_label_style))
+    right_block.append(Paragraph(f"{payslip['month_name']} {payslip['year']}", month_value_style))
+
+    # Build header with logo
+    if os.path.exists(logo_path):
+        try:
+            logo = RLImage(logo_path, width=40, height=40)
+            logo_cell = Table([[logo]], colWidths=[45])
+            logo_cell.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+        except Exception:
+            logo_cell = Paragraph("", styles['Normal'])
+    else:
+        logo_cell = Paragraph("", styles['Normal'])
+
+    left_table = Table([[logo_cell, company_block]], colWidths=[50, page_width * 0.45])
+    left_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0)]))
+
+    right_table = Table([[right_block]], colWidths=[page_width * 0.45])
+    right_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('ALIGN', (0, 0), (-1, -1), 'RIGHT')]))
+
+    header = Table([[left_table, right_table]], colWidths=[page_width * 0.55, page_width * 0.45])
+    header.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    elements.append(header)
     elements.append(Spacer(1, 12))
-    elements.append(HRFlowable(width="100%", thickness=1, color=border_grey))
+    elements.append(HRFlowable(width="100%", thickness=1, color=border_color))
     elements.append(Spacer(1, 12))
 
-    # ============ PAYSLIP TITLE ============
-    title_style = ParagraphStyle('PayslipTitle', parent=styles['Normal'], fontSize=9, textColor=text_grey, alignment=1)
-    month_style = ParagraphStyle('MonthTitle', parent=styles['Normal'], fontSize=16, fontName='Helvetica-Bold', textColor=text_dark, alignment=1, spaceAfter=6)
-    
-    elements.append(Paragraph("Payslip for the month", title_style))
-    elements.append(Paragraph(f"{payslip['month_name']} {payslip['year']}", month_style))
-    elements.append(Spacer(1, 12))
-    elements.append(HRFlowable(width="100%", thickness=1, color=border_grey))
-    elements.append(Spacer(1, 12))
+    # ============ EMPLOYEE SUMMARY ============
+    section_title = ParagraphStyle('ST', fontSize=10, fontName='Helvetica-Bold', textColor=dark_text, spaceBefore=4, spaceAfter=8)
+    label_s = ParagraphStyle('LS', fontSize=8, textColor=light_text, leading=12)
+    value_s = ParagraphStyle('VS', fontSize=8, textColor=dark_text, fontName='Helvetica-Bold', leading=12)
 
-    # ============ EMPLOYEE PAY SUMMARY ============
-    section_style = ParagraphStyle('SectionTitle', parent=styles['Normal'], fontSize=11, fontName='Helvetica-Bold', textColor=text_dark, spaceAfter=8)
-    elements.append(Paragraph("Employee Pay Summary", section_style))
-    
+    elements.append(Paragraph("EMPLOYEE SUMMARY", section_title))
+
     # Calculate paid days and LOP days
     basic_salary = payslip.get('basic_salary', 0) or 0
     lop_days = 0
     for ded in payslip.get('deduction_details', []):
         desc = ded.get('description', '')
         if 'Loss of Pay' in desc:
-            # Extract days from description like "Loss of Pay (2 days)"
             import re
             match = re.search(r'\((\d+)\s*days?\)', desc)
             if match:
                 lop_days = int(match.group(1))
-    
-    working_days = WORKING_DAYS_PER_MONTH
-    paid_days = working_days - lop_days
-    
-    # Generate pay date (5th of next month)
+    paid_days = WORKING_DAYS_PER_MONTH - lop_days
+
     pay_month = payslip['month'] + 1
     pay_year = payslip['year']
     if pay_month > 12:
         pay_month = 1
         pay_year += 1
-    month_names_short = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-    pay_date = f"5th {month_names_short[pay_month]}, {pay_year}"
+    pay_date = f"{5:02d}/{pay_month:02d}/{pay_year}"
 
-    label_style = ParagraphStyle('Label', parent=styles['Normal'], fontSize=9, textColor=text_grey)
-    value_style = ParagraphStyle('Value', parent=styles['Normal'], fontSize=9, textColor=text_dark, fontName='Helvetica-Bold')
-
-    emp_data = [
-        [Paragraph("Employee Name", label_style), Paragraph(payslip.get('employee_name', ''), value_style),
-         Paragraph("Employee Id", label_style), Paragraph(str(payslip.get('employee_id', '')), value_style)],
-        [Paragraph("Pay Period", label_style), Paragraph(f"{payslip['month_name']} {payslip['year']}", value_style),
-         Paragraph("Paid Days", label_style), Paragraph(str(paid_days), value_style)],
-        [Paragraph("Loss of Pay Days", label_style), Paragraph(str(lop_days), value_style),
-         Paragraph("Pay Date", label_style), Paragraph(pay_date, value_style)],
-    ]
-    
+    emp_id = str(payslip.get('employee_id', ''))
     col_w = page_width / 4
-    emp_table = Table(emp_data, colWidths=[col_w, col_w, col_w, col_w])
+
+    emp_rows = [
+        [Paragraph("Employee Name", label_s), Paragraph(f": {payslip.get('employee_name', '')}", value_s),
+         Paragraph("Pay Period", label_s), Paragraph(f": {payslip['month_name']} {payslip['year']}", value_s)],
+        [Paragraph("Employee ID", label_s), Paragraph(f": {emp_id}", value_s),
+         Paragraph("Pay Date", label_s), Paragraph(f": {pay_date}", value_s)],
+        [Paragraph("Department", label_s), Paragraph(f": {payslip.get('department', 'N/A')}", value_s),
+         Paragraph("Paid Days", label_s), Paragraph(f": {paid_days}", value_s)],
+        [Paragraph("Designation", label_s), Paragraph(f": {payslip.get('position', 'N/A')}", value_s),
+         Paragraph("LOP Days", label_s), Paragraph(f": {lop_days}", value_s)],
+    ]
+
+    emp_table = Table(emp_rows, colWidths=[col_w * 0.8, col_w * 1.2, col_w * 0.7, col_w * 1.3])
     emp_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('LINEBELOW', (0, 0), (-1, -1), 0.5, border_grey),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
     ]))
     elements.append(emp_table)
-    elements.append(Spacer(1, 16))
+    elements.append(Spacer(1, 12))
+    elements.append(HRFlowable(width="100%", thickness=1, color=border_color))
+    elements.append(Spacer(1, 12))
 
     # ============ EARNINGS & DEDUCTIONS SIDE BY SIDE ============
-    # Salary breakdown ratios
+    # Salary breakdown
     basic = round(basic_salary * 0.50, 2)
     hra = round(basic_salary * 0.20, 2)
     medical = round(basic_salary * 0.045, 2)
     conveyance = round(basic_salary * 0.06, 2)
     special = round(basic_salary - basic - hra - medical - conveyance, 2)
-    gross_earnings = basic_salary
+    gross = basic_salary
+
+    h_style = ParagraphStyle('HS', fontSize=8, fontName='Helvetica-Bold', textColor=dark_text)
+    h_r_style = ParagraphStyle('HRS', fontSize=8, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
+    r_style = ParagraphStyle('RS', fontSize=8, textColor=medium_text)
+    r_r_style = ParagraphStyle('RRS', fontSize=8, textColor=medium_text, alignment=2)
+    t_style = ParagraphStyle('TS', fontSize=8, fontName='Helvetica-Bold', textColor=dark_text)
+    t_r_style = ParagraphStyle('TRS', fontSize=8, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
+
+    half_w = page_width / 2 - 6
 
     # Earnings table
-    earn_header_style = ParagraphStyle('EarnHeader', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold', textColor=text_dark)
-    earn_label_style = ParagraphStyle('EarnLabel', parent=styles['Normal'], fontSize=9, textColor=text_dark)
-    earn_amount_style = ParagraphStyle('EarnAmount', parent=styles['Normal'], fontSize=9, textColor=text_dark, alignment=2)
-    earn_total_label = ParagraphStyle('EarnTotalLabel', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=text_dark)
-    earn_total_amount = ParagraphStyle('EarnTotalAmt', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=text_dark, alignment=2)
-
-    half_w = page_width / 2 - 4
-
-    earnings_rows = [
-        [Paragraph("Earnings", earn_header_style), Paragraph("Amount", ParagraphStyle('AmtHead', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=text_grey, alignment=2))],
-        [Paragraph("Basic", earn_label_style), Paragraph(f"{basic:,.2f}", earn_amount_style)],
-        [Paragraph("HRA", earn_label_style), Paragraph(f"{hra:,.2f}", earn_amount_style)],
-        [Paragraph("Medical Allowance", earn_label_style), Paragraph(f"{medical:,.2f}", earn_amount_style)],
-        [Paragraph("Conveyance Allowance", earn_label_style), Paragraph(f"{conveyance:,.2f}", earn_amount_style)],
-        [Paragraph("Special Allowance", earn_label_style), Paragraph(f"{special:,.2f}", earn_amount_style)],
-        [Paragraph("Gross Earnings", earn_total_label), Paragraph(f"{gross_earnings:,.2f}", earn_total_amount)],
+    earn_rows = [
+        [Paragraph("EARNINGS", h_style), Paragraph("AMOUNT", h_r_style)],
+        [Paragraph("Basic", r_style), Paragraph(f"{basic:,.2f}", r_r_style)],
+        [Paragraph("House Rent Allowance", r_style), Paragraph(f"{hra:,.2f}", r_r_style)],
+        [Paragraph("Medical Allowance", r_style), Paragraph(f"{medical:,.2f}", r_r_style)],
+        [Paragraph("Conveyance Allowance", r_style), Paragraph(f"{conveyance:,.2f}", r_r_style)],
+        [Paragraph("Special Allowance", r_style), Paragraph(f"{special:,.2f}", r_r_style)],
+        [Paragraph("Gross Earnings", t_style), Paragraph(f"{gross:,.2f}", t_r_style)],
     ]
 
-    earn_table = Table(earnings_rows, colWidths=[half_w * 0.6, half_w * 0.4])
-    earn_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), light_grey),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('LINEBELOW', (0, 0), (-1, -2), 0.5, border_grey),
-        ('LINEBELOW', (0, -1), (-1, -1), 1, primary_blue),
-        ('BACKGROUND', (0, -1), (-1, -1), light_grey),
+    e_table = Table(earn_rows, colWidths=[half_w * 0.65, half_w * 0.35])
+    e_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), header_bg),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, border_color),
+        ('LINEBELOW', (0, 1), (-1, -2), 0.5, border_color),
+        ('LINEABOVE', (0, -1), (-1, -1), 1, border_color),
+        ('BACKGROUND', (0, -1), (-1, -1), header_bg),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
     ]))
 
     # Deductions table
@@ -1127,100 +1166,95 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
     deduction_details = payslip.get('deduction_details', [])
 
     ded_rows = [
-        [Paragraph("Deductions", earn_header_style), Paragraph("Amount", ParagraphStyle('AmtHead2', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=text_grey, alignment=2))],
+        [Paragraph("DEDUCTIONS", h_style), Paragraph("AMOUNT", h_r_style)],
     ]
-    
     if deduction_details:
         for ded in deduction_details:
             ded_rows.append([
-                Paragraph(ded.get('description', ''), earn_label_style),
-                Paragraph(f"{ded.get('amount', 0):,.2f}", earn_amount_style)
+                Paragraph(ded.get('description', ''), r_style),
+                Paragraph(f"{ded.get('amount', 0):,.2f}", r_r_style)
             ])
     else:
-        ded_rows.append([Paragraph("No Deductions", earn_label_style), Paragraph("0.00", earn_amount_style)])
-    
-    # Pad to match earnings rows
-    while len(ded_rows) < len(earnings_rows) - 1:
-        ded_rows.append([Paragraph("", earn_label_style), Paragraph("", earn_amount_style)])
-    
-    ded_rows.append([Paragraph("Total Deductions", earn_total_label), Paragraph(f"{total_deductions:,.2f}", earn_total_amount)])
+        ded_rows.append([Paragraph("No Deductions", r_style), Paragraph("0.00", r_r_style)])
 
-    ded_table = Table(ded_rows, colWidths=[half_w * 0.6, half_w * 0.4])
-    ded_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), light_grey),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('LINEBELOW', (0, 0), (-1, -2), 0.5, border_grey),
-        ('LINEBELOW', (0, -1), (-1, -1), 1, colors.HexColor('#d32f2f')),
-        ('BACKGROUND', (0, -1), (-1, -1), light_grey),
+    # Pad rows to match earnings height
+    while len(ded_rows) < len(earn_rows) - 1:
+        ded_rows.append([Paragraph("", r_style), Paragraph("", r_r_style)])
+
+    ded_rows.append([Paragraph("Total Deductions", t_style), Paragraph(f"{total_deductions:,.2f}", t_r_style)])
+
+    d_table = Table(ded_rows, colWidths=[half_w * 0.65, half_w * 0.35])
+    d_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), header_bg),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, border_color),
+        ('LINEBELOW', (0, 1), (-1, -2), 0.5, border_color),
+        ('LINEABOVE', (0, -1), (-1, -1), 1, border_color),
+        ('BACKGROUND', (0, -1), (-1, -1), header_bg),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
     ]))
 
-    # Combine side by side
-    combined = Table([[earn_table, ded_table]], colWidths=[half_w + 2, half_w + 2])
+    combined = Table([[e_table, d_table]], colWidths=[half_w + 4, half_w + 4], hAlign='CENTER')
     combined.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (0, 0), 0),
         ('RIGHTPADDING', (1, 0), (1, 0), 0),
-        ('LEFTPADDING', (1, 0), (1, 0), 6),
+        ('LEFTPADDING', (1, 0), (1, 0), 8),
     ]))
     elements.append(combined)
     elements.append(Spacer(1, 16))
 
-    # ============ NET PAYABLE ============
-    elements.append(HRFlowable(width="100%", thickness=1, color=border_grey))
-    elements.append(Spacer(1, 10))
-    
-    net_pay = payslip.get('net_pay', 0) or 0
-    
-    net_label_style = ParagraphStyle('NetLabel', parent=styles['Normal'], fontSize=10, textColor=text_grey)
-    net_value_style = ParagraphStyle('NetValue', parent=styles['Normal'], fontSize=16, fontName='Helvetica-Bold', textColor=primary_blue)
-    
-    net_data = [
-        [Paragraph("Net Payable", net_label_style), Paragraph(f"{net_pay:,.2f}", net_value_style)],
-    ]
-    net_table = Table(net_data, colWidths=[page_width * 0.5, page_width * 0.5])
-    net_table.setStyle(TableStyle([
-        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+    # ============ TOTAL NET PAYABLE (green box) ============
+    net_title_style = ParagraphStyle('NTS', fontSize=9, fontName='Helvetica-Bold', textColor=dark_text)
+    net_formula_style = ParagraphStyle('NFS', fontSize=7, textColor=light_text)
+    net_big_style = ParagraphStyle('NBS', fontSize=18, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
+
+    net_left = []
+    net_left.append(Paragraph("TOTAL NET PAYABLE", net_title_style))
+    net_left.append(Spacer(1, 2))
+    net_left.append(Paragraph("Gross Earnings - Total Deductions", net_formula_style))
+
+    net_box_data = [[net_left, Paragraph(f"Rs. {net_pay:,.2f}", net_big_style)]]
+    net_box = Table(net_box_data, colWidths=[page_width * 0.55, page_width * 0.45])
+    net_box.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), green_bg),
+        ('BOX', (0, 0), (-1, -1), 1.5, green_border),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
     ]))
-    elements.append(net_table)
-    
-    # Amount in words
+    elements.append(net_box)
+    elements.append(Spacer(1, 10))
+
+    # ============ AMOUNT IN WORDS ============
     try:
         net_int = int(net_pay)
         paise = int(round((net_pay - net_int) * 100))
         words = num2words(net_int, lang='en_IN').replace(',', '').title()
         if paise > 0:
             paise_words = num2words(paise, lang='en_IN').title()
-            amount_words = f"{words} Rupees and {paise_words} Paise Only"
+            amount_words = f"Indian Rupee {words} and {paise_words} Paise Only"
         else:
-            amount_words = f"{words} Only"
+            amount_words = f"Indian Rupee {words} Only"
     except Exception:
         amount_words = ""
-    
-    words_label_style = ParagraphStyle('WordsLabel', parent=styles['Normal'], fontSize=8, textColor=text_grey)
-    words_value_style = ParagraphStyle('WordsValue', parent=styles['Normal'], fontSize=9, textColor=text_dark, fontName='Helvetica-Oblique')
-    
-    elements.append(Spacer(1, 4))
-    words_data = [
-        [Paragraph("Amount in words", words_label_style), Paragraph(amount_words, words_value_style)],
-    ]
-    words_table = Table(words_data, colWidths=[page_width * 0.2, page_width * 0.8])
-    words_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-    ]))
-    elements.append(words_table)
-    
-    elements.append(Spacer(1, 30))
-    elements.append(HRFlowable(width="100%", thickness=0.5, color=border_grey))
-    elements.append(Spacer(1, 8))
+
+    words_style = ParagraphStyle('WS', fontSize=8, textColor=medium_text, alignment=1)
+    words_label = ParagraphStyle('WL', fontSize=7, textColor=light_text, alignment=1)
+    elements.append(Paragraph("Amount In Words:", words_label))
+    elements.append(Spacer(1, 2))
+    elements.append(Paragraph(amount_words, words_style))
+    elements.append(Spacer(1, 25))
 
     # ============ FOOTER ============
-    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=1, textColor=text_grey)
-    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%B %d, %Y')} | This is a computer-generated payslip and does not require a signature.", footer_style))
-    elements.append(Paragraph("SPARKCURV TECHNOLOGIES PVT LIMITED | www.sparkcurv.com", footer_style))
+    elements.append(HRFlowable(width="100%", thickness=0.5, color=border_color))
+    elements.append(Spacer(1, 6))
+    footer_style = ParagraphStyle('FT', fontSize=7, alignment=1, textColor=light_text)
+    elements.append(Paragraph("-- This document has been automatically generated by Sparkcurv HR Portal; therefore, a signature is not required. --", footer_style))
 
     doc.build(elements)
     buffer.seek(0)
