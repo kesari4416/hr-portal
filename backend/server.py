@@ -1027,19 +1027,11 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
     company_block.append(Spacer(1, 3))
     company_block.append(Paragraph("64/3 Thompson Street, Palace Road, Nagercoil, Tamil Nadu 629001", company_addr_style))
 
-    # Net pay (right side)
-    net_pay = payslip.get('net_pay', 0) or 0
-    net_label_style = ParagraphStyle('NL', fontSize=8, textColor=light_text, alignment=2)
-    net_amount_style = ParagraphStyle('NA', fontSize=16, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
+    # Right side - Payslip month only
+    month_label_style = ParagraphStyle('ML', fontSize=8, textColor=light_text, alignment=2)
+    month_value_style = ParagraphStyle('MV', fontSize=11, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
 
     right_block = []
-    right_block.append(Paragraph("Employee Net Pay", net_label_style))
-    right_block.append(Spacer(1, 2))
-    right_block.append(Paragraph(f"Rs. {net_pay:,.2f}", net_amount_style))
-
-    # Payslip month under net pay
-    month_label_style = ParagraphStyle('ML', fontSize=8, textColor=light_text, alignment=2, spaceBefore=6)
-    month_value_style = ParagraphStyle('MV', fontSize=11, fontName='Helvetica-Bold', textColor=dark_text, alignment=2)
     right_block.append(Paragraph("Payslip For the Month", month_label_style))
     right_block.append(Paragraph(f"{payslip['month_name']} {payslip['year']}", month_value_style))
 
@@ -1076,6 +1068,7 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
 
     # Calculate paid days and LOP days
     basic_salary = payslip.get('basic_salary', 0) or 0
+    net_pay = payslip.get('net_pay', 0) or 0
     lop_days = 0
     for ded in payslip.get('deduction_details', []):
         desc = ded.get('description', '')
