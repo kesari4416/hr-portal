@@ -1701,24 +1701,30 @@ async def startup():
         try:
             await execute_query("SELECT employee_code FROM users LIMIT 1", fetch_one=True)
         except Exception:
-            await execute_query("ALTER TABLE users ADD COLUMN employee_code VARCHAR(20) DEFAULT ''")
-            logger.info("Added employee_code column to users table")
+            try:
+                await execute_query("ALTER TABLE users ADD COLUMN employee_code VARCHAR(20) DEFAULT ''")
+                logger.info("Added employee_code column to users table")
+            except Exception as e:
+                logger.warning(f"Could not add employee_code column: {e}")
 
         # Backfill employee_code for existing users without one
-        users_without_code = await execute_query("SELECT id FROM users WHERE employee_code IS NULL OR employee_code = '' ORDER BY id", fetch_all=True)
-        if users_without_code:
-            max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
-            next_num = 24001
-            if max_code and max_code["employee_code"]:
-                try:
-                    next_num = int(max_code["employee_code"][2:]) + 1
-                except ValueError:
-                    pass
-            for u in users_without_code:
-                code = f"SC{next_num}"
-                await execute_query("UPDATE users SET employee_code = %s WHERE id = %s", (code, u["id"]))
-                next_num += 1
-            logger.info(f"Backfilled employee_code for {len(users_without_code)} users")
+        try:
+            users_without_code = await execute_query("SELECT id FROM users WHERE employee_code IS NULL OR employee_code = '' ORDER BY id", fetch_all=True)
+            if users_without_code:
+                max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
+                next_num = 24001
+                if max_code and max_code["employee_code"]:
+                    try:
+                        next_num = int(max_code["employee_code"][2:]) + 1
+                    except ValueError:
+                        pass
+                for u in users_without_code:
+                    code = f"SC{next_num}"
+                    await execute_query("UPDATE users SET employee_code = %s WHERE id = %s", (code, u["id"]))
+                    next_num += 1
+                logger.info(f"Backfilled employee_code for {len(users_without_code)} users")
+        except Exception as e:
+            logger.warning(f"Employee code backfill skipped: {e}")
 
         # Seed admin
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@hrportal.com")
@@ -1727,11 +1733,18 @@ async def startup():
         existing = await execute_query("SELECT id, password_hash FROM users WHERE email = %s", (admin_email,), fetch_one=True)
         if existing is None:
             hashed = hash_password(admin_password)
-            await execute_query(
-                """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, employee_code)
-                   VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', '', %s, 12, 3, 0, 'SC24001')""",
-                (admin_email, hashed, datetime.now(timezone.utc).isoformat())
-            )
+            try:
+                await execute_query(
+                    """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, employee_code)
+                       VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', '', %s, 12, 3, 0, 'SC24001')""",
+                    (admin_email, hashed, datetime.now(timezone.utc).isoformat())
+                )
+            except Exception:
+                await execute_query(
+                    """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay)
+                       VALUES (%s, %s, 'Admin', 'admin', 'Administration', 'System Admin', '', %s, 12, 3, 0)""",
+                    (admin_email, hashed, datetime.now(timezone.utc).isoformat())
+                )
             logger.info(f"Admin user created: {admin_email} / {admin_password}")
         elif not verify_password(admin_password, existing["password_hash"]):
             await execute_query("UPDATE users SET password_hash = %s WHERE email = %s", (hash_password(admin_password), admin_email))

@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS users (
     permission_hours FLOAT DEFAULT 2,
     half_day_leave FLOAT DEFAULT 0,
     shift VARCHAR(50) DEFAULT '',
-    basic_salary FLOAT DEFAULT 0
+    basic_salary FLOAT DEFAULT 0,
+    employee_code VARCHAR(20) DEFAULT ''
 );
 
 -- =============================================
