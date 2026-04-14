@@ -223,6 +223,7 @@ class LeaveRequest(BaseModel):
     start_date: str
     end_date: str
     reason: str
+    is_half_day: bool = False
 
 class EmployeeUpdate(BaseModel):
     name: Optional[str] = None
@@ -594,31 +595,57 @@ async def create_leave_request(leave_data: LeaveRequest, request: Request):
 
     start = datetime.strptime(leave_data.start_date, "%Y-%m-%d")
     end = datetime.strptime(leave_data.end_date, "%Y-%m-%d")
-    working_days = 0
-    current = start
-    while current <= end:
-        date_str = current.strftime("%Y-%m-%d")
-        if not is_weekend(date_str) and not is_holiday(date_str):
-            working_days += 1
-        current += timedelta(days=1)
+
+    # For half-day leave, start and end must be same date
+    if leave_data.is_half_day:
+        if leave_data.start_date != leave_data.end_date:
+            raise HTTPException(status_code=400, detail="Half-day leave must be for a single date")
+        working_days = 0.5
+    else:
+        working_days = 0
+        current = start
+        while current <= end:
+            date_str = current.strftime("%Y-%m-%d")
+            if not is_weekend(date_str) and not is_holiday(date_str):
+                working_days += 1
+            current += timedelta(days=1)
 
     if working_days == 0:
         raise HTTPException(status_code=400, detail="Selected dates only contain weekends/holidays")
 
+    # Monthly leave limit check (1.5 days per month) - skip for loss_of_pay
     if leave_data.leave_type != "loss_of_pay":
+        month_start = start.strftime("%Y-%m") + "-01"
+        month_num = start.month
+        year_num = start.year
+        if month_num == 12:
+            month_end = f"{year_num + 1}-01-01"
+        else:
+            month_end = f"{year_num}-{month_num + 1:02d}-01"
+
+        used_this_month = await execute_query(
+            "SELECT COALESCE(SUM(days), 0) as total FROM leave_requests WHERE user_id = %s AND start_date >= %s AND start_date < %s AND status IN ('pending', 'approved') AND leave_type != 'loss_of_pay'",
+            (user["id"], month_start, month_end), fetch_one=True
+        )
+        used = float(used_this_month["total"]) if used_this_month else 0
+        if used + working_days > 1.5:
+            remaining = max(0, 1.5 - used)
+            raise HTTPException(status_code=400, detail=f"Monthly leave limit is 1.5 days. Used: {used}, Remaining: {remaining}")
+
+        # Check leave balance
         leave_field = f"{leave_data.leave_type}_leave"
         current_balance = user.get(leave_field, 0)
         if working_days > current_balance:
             raise HTTPException(status_code=400, detail=f"Insufficient {leave_data.leave_type} leave balance")
 
     leave_id = await execute_query(
-        """INSERT INTO leave_requests (user_id, user_name, user_email, leave_type, start_date, end_date, days, reason, status, created_at)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)""",
-        (user["id"], user["name"], user.get("email", ""), leave_data.leave_type, leave_data.start_date, leave_data.end_date, working_days, leave_data.reason, datetime.now(timezone.utc).isoformat()),
+        """INSERT INTO leave_requests (user_id, user_name, user_email, leave_type, start_date, end_date, days, reason, status, created_at, is_half_day)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)""",
+        (user["id"], user["name"], user.get("email", ""), leave_data.leave_type, leave_data.start_date, leave_data.end_date, working_days, leave_data.reason, datetime.now(timezone.utc).isoformat(), 1 if leave_data.is_half_day else 0),
         last_id=True
     )
 
-    return {"id": str(leave_id), "user_id": str(user["id"]), "user_name": user["name"], "user_email": user.get("email", ""), "leave_type": leave_data.leave_type, "start_date": leave_data.start_date, "end_date": leave_data.end_date, "days": working_days, "reason": leave_data.reason, "status": "pending", "created_at": datetime.now(timezone.utc).isoformat(), "reviewed_by": None, "reviewed_at": None}
+    return {"id": str(leave_id), "user_id": str(user["id"]), "user_name": user["name"], "user_email": user.get("email", ""), "leave_type": leave_data.leave_type, "start_date": leave_data.start_date, "end_date": leave_data.end_date, "days": working_days, "reason": leave_data.reason, "status": "pending", "created_at": datetime.now(timezone.utc).isoformat(), "reviewed_by": None, "reviewed_at": None, "is_half_day": leave_data.is_half_day}
 
 @leave_router.get("/my-requests")
 async def get_my_leave_requests(request: Request):
@@ -633,9 +660,26 @@ async def get_my_leave_requests(request: Request):
             "id": str(r["id"]), "user_id": str(r["user_id"]), "user_name": r["user_name"], "user_email": r["user_email"],
             "leave_type": r["leave_type"], "start_date": r["start_date"], "end_date": r["end_date"],
             "days": r["days"], "reason": r["reason"], "status": r["status"],
-            "created_at": r["created_at"], "reviewed_by": r["reviewed_by"], "reviewed_at": r["reviewed_at"]
+            "created_at": r["created_at"], "reviewed_by": r["reviewed_by"], "reviewed_at": r["reviewed_at"],
+            "is_half_day": bool(r.get("is_half_day", 0))
         })
     return result
+
+@leave_router.get("/monthly-usage")
+async def get_monthly_leave_usage(request: Request):
+    user = await get_current_user(request)
+    now = datetime.now(timezone.utc)
+    month_start = f"{now.year}-{now.month:02d}-01"
+    if now.month == 12:
+        month_end = f"{now.year + 1}-01-01"
+    else:
+        month_end = f"{now.year}-{now.month + 1:02d}-01"
+    used = await execute_query(
+        "SELECT COALESCE(SUM(days), 0) as total FROM leave_requests WHERE user_id = %s AND start_date >= %s AND start_date < %s AND status IN ('pending', 'approved') AND leave_type != 'loss_of_pay'",
+        (user["id"], month_start, month_end), fetch_one=True
+    )
+    used_days = float(used["total"]) if used else 0
+    return {"monthly_limit": 1.5, "used": used_days, "remaining": max(0, 1.5 - used_days)}
 
 @leave_router.delete("/{leave_id}")
 async def cancel_leave_request(leave_id: str, request: Request):
@@ -1770,12 +1814,13 @@ async def init_database():
                     leave_type VARCHAR(50),
                     start_date VARCHAR(20),
                     end_date VARCHAR(20),
-                    days INT DEFAULT 0,
+                    days FLOAT DEFAULT 0,
                     reason TEXT,
                     status VARCHAR(20) DEFAULT 'pending',
                     created_at VARCHAR(64),
                     reviewed_by VARCHAR(255),
                     reviewed_at VARCHAR(64),
+                    is_half_day TINYINT DEFAULT 0,
                     INDEX idx_user_status (user_id, status)
                 )
             """)
@@ -1860,6 +1905,30 @@ async def startup():
                 logger.info("Added employee_code column to users table")
             except Exception as e:
                 logger.warning(f"Could not add employee_code column: {e}")
+
+        # Migration: Add is_half_day to leave_requests and change days to FLOAT
+        try:
+            await execute_query("SELECT is_half_day FROM leave_requests LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE leave_requests ADD COLUMN is_half_day TINYINT DEFAULT 0")
+                logger.info("Added is_half_day column to leave_requests")
+            except Exception as e:
+                logger.warning(f"Could not add is_half_day column: {e}")
+        try:
+            await execute_query("ALTER TABLE leave_requests MODIFY COLUMN days FLOAT DEFAULT 0")
+        except Exception:
+            pass
+
+        # Migration: Add wfh_limit to users
+        try:
+            await execute_query("SELECT wfh_limit FROM users LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE users ADD COLUMN wfh_limit INT DEFAULT 4")
+                logger.info("Added wfh_limit column to users")
+            except Exception as e:
+                logger.warning(f"Could not add wfh_limit column: {e}")
 
         # Backfill employee_code for existing users without one
         try:

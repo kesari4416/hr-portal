@@ -1218,9 +1218,9 @@ export default function AdminDashboard() {
                           <p className="font-medium text-gray-900">{req.user_name}</p>
                           <p className="text-xs text-gray-500">{req.user_email}</p>
                         </td>
-                        <td className="table-cell capitalize">{req.leave_type}</td>
+                        <td className="table-cell capitalize">{req.leave_type}{req.is_half_day ? " (Half Day)" : ""}</td>
                         <td className="table-cell">
-                          <p>{format(new Date(req.start_date), "MMM d")} - {format(new Date(req.end_date), "MMM d, yyyy")}</p>
+                          <p>{req.is_half_day ? format(new Date(req.start_date), "MMM d, yyyy") : `${format(new Date(req.start_date), "MMM d")} - ${format(new Date(req.end_date), "MMM d, yyyy")}`}</p>
                           <p className="text-xs text-gray-500">{req.days} day(s)</p>
                         </td>
                         <td className="table-cell max-w-xs truncate">{req.reason}</td>

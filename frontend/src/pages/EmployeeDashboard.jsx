@@ -58,6 +58,7 @@ export default function EmployeeDashboard() {
   const [wfhRequests, setWfhRequests] = useState([]);
   const [wfhDialogOpen, setWfhDialogOpen] = useState(false);
   const [wfhForm, setWfhForm] = useState({ date: null, reason: "" });
+  const [monthlyLeaveUsage, setMonthlyLeaveUsage] = useState({ monthly_limit: 1.5, used: 0, remaining: 1.5 });
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -69,7 +70,8 @@ export default function EmployeeDashboard() {
     leave_type: "casual",
     start_date: null,
     end_date: null,
-    reason: ""
+    reason: "",
+    is_half_day: false
   });
 
   const [permissionForm, setPermissionForm] = useState({
@@ -80,7 +82,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes, monthlyUsageRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -93,7 +95,8 @@ export default function EmployeeDashboard() {
         api.get("/holidays/list"),
         api.get("/policy/list"),
         api.get("/wfh/balance"),
-        api.get("/wfh/my-requests")
+        api.get("/wfh/my-requests"),
+        api.get("/leave/monthly-usage")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -108,6 +111,7 @@ export default function EmployeeDashboard() {
       setPolicies(policiesRes.data);
       setWfhBalance(wfhBalRes.data);
       setWfhRequests(wfhReqRes.data);
+      setMonthlyLeaveUsage(monthlyUsageRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -214,8 +218,12 @@ export default function EmployeeDashboard() {
   };
 
   const handleLeaveRequest = async () => {
-    if (!leaveForm.start_date || !leaveForm.end_date || !leaveForm.reason) {
+    if (!leaveForm.start_date || !leaveForm.reason) {
       toast.error("Please fill in all fields");
+      return;
+    }
+    if (!leaveForm.is_half_day && !leaveForm.end_date) {
+      toast.error("Please select an end date");
       return;
     }
 
@@ -224,12 +232,13 @@ export default function EmployeeDashboard() {
       await api.post("/leave/request", {
         leave_type: leaveForm.leave_type,
         start_date: format(leaveForm.start_date, "yyyy-MM-dd"),
-        end_date: format(leaveForm.end_date, "yyyy-MM-dd"),
-        reason: leaveForm.reason
+        end_date: format(leaveForm.is_half_day ? leaveForm.start_date : leaveForm.end_date, "yyyy-MM-dd"),
+        reason: leaveForm.reason,
+        is_half_day: leaveForm.is_half_day
       });
       toast.success("Leave request submitted!");
       setLeaveDialogOpen(false);
-      setLeaveForm({ leave_type: "casual", start_date: null, end_date: null, reason: "" });
+      setLeaveForm({ leave_type: "casual", start_date: null, end_date: null, reason: "", is_half_day: false });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to submit leave request");
@@ -653,7 +662,10 @@ export default function EmployeeDashboard() {
                         <DialogTitle className="font-['Outfit']">Request Leave</DialogTitle>
                       </DialogHeader>
                       <p className="text-sm text-gray-500 -mt-2">Fill in the details below to submit a leave request.</p>
-                      <div className="space-y-4 pt-4">
+                      <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm text-amber-700">
+                        Monthly limit: <strong>1.5 days</strong> | Used: <strong>{monthlyLeaveUsage.used}</strong> | Remaining: <strong>{monthlyLeaveUsage.remaining}</strong>
+                      </div>
+                      <div className="space-y-4 pt-2">
                         <div className="space-y-2">
                           <Label>Leave Type</Label>
                           <Select
@@ -671,9 +683,21 @@ export default function EmployeeDashboard() {
                           </Select>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="flex items-center gap-3">
+                          <input
+                            data-testid="half-day-checkbox"
+                            type="checkbox"
+                            id="halfDay"
+                            checked={leaveForm.is_half_day}
+                            onChange={(e) => setLeaveForm({ ...leaveForm, is_half_day: e.target.checked, end_date: e.target.checked ? leaveForm.start_date : leaveForm.end_date })}
+                            className="h-4 w-4 rounded border-gray-300 text-[#002FA7] focus:ring-[#002FA7]"
+                          />
+                          <label htmlFor="halfDay" className="text-sm font-medium text-gray-700">Half Day Leave (0.5 day)</label>
+                        </div>
+
+                        <div className={`grid ${leaveForm.is_half_day ? "grid-cols-1" : "grid-cols-2"} gap-4`}>
                           <div className="space-y-2">
-                            <Label>Start Date</Label>
+                            <Label>{leaveForm.is_half_day ? "Date" : "Start Date"}</Label>
                             <Popover>
                               <PopoverTrigger asChild>
                                 <Button
@@ -696,6 +720,7 @@ export default function EmployeeDashboard() {
                             </Popover>
                           </div>
 
+                          {!leaveForm.is_half_day && (
                           <div className="space-y-2">
                             <Label>End Date</Label>
                             <Popover>
@@ -719,6 +744,7 @@ export default function EmployeeDashboard() {
                               </PopoverContent>
                             </Popover>
                           </div>
+                          )}
                         </div>
 
                         <div className="space-y-2">
@@ -835,9 +861,16 @@ export default function EmployeeDashboard() {
                       <div key={request.id} className="p-4 hover:bg-gray-50 transition-colors">
                         <div className="flex items-start justify-between">
                           <div>
-                            <p className="font-medium text-gray-900 capitalize">{request.leave_type} Leave</p>
+                            <p className="font-medium text-gray-900 capitalize">
+                              {request.leave_type} Leave
+                              {request.is_half_day && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Half Day</span>}
+                            </p>
                             <p className="text-sm text-gray-500">
-                              {format(new Date(request.start_date), "MMM d")} - {format(new Date(request.end_date), "MMM d, yyyy")}
+                              {request.is_half_day
+                                ? format(new Date(request.start_date), "MMM d, yyyy")
+                                : `${format(new Date(request.start_date), "MMM d")} - ${format(new Date(request.end_date), "MMM d, yyyy")}`
+                              }
+                              {" "}({request.days} {request.days === 1 ? "day" : "days"})
                             </p>
                             <p className="text-sm text-gray-500 mt-1">{request.reason}</p>
                           </div>
