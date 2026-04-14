@@ -14,7 +14,7 @@ import {
   SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
-  CalendarStar, CurrencyCircleDollar, Scroll
+  CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash
 } from "@phosphor-icons/react";
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
@@ -54,6 +54,10 @@ export default function EmployeeDashboard() {
   const [myShift, setMyShift] = useState(null);
   const [holidays, setHolidays] = useState([]);
   const [policies, setPolicies] = useState([]);
+  const [wfhBalance, setWfhBalance] = useState({ limit: 4, used: 0, remaining: 4 });
+  const [wfhRequests, setWfhRequests] = useState([]);
+  const [wfhDialogOpen, setWfhDialogOpen] = useState(false);
+  const [wfhForm, setWfhForm] = useState({ date: null, reason: "" });
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -76,7 +80,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -87,7 +91,9 @@ export default function EmployeeDashboard() {
         api.get("/payslip/my-payslips"),
         api.get("/attendance/my-shift"),
         api.get("/holidays/list"),
-        api.get("/policy/list")
+        api.get("/policy/list"),
+        api.get("/wfh/balance"),
+        api.get("/wfh/my-requests")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -100,6 +106,8 @@ export default function EmployeeDashboard() {
       setMyShift(shiftRes.data);
       setHolidays(holidaysRes.data);
       setPolicies(policiesRes.data);
+      setWfhBalance(wfhBalRes.data);
+      setWfhRequests(wfhReqRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -270,6 +278,38 @@ export default function EmployeeDashboard() {
     }
   };
 
+  const handleRequestWfh = async () => {
+    if (!wfhForm.date || !wfhForm.reason) {
+      toast.error("Please select a date and enter a reason");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post("/wfh/request", {
+        date: format(wfhForm.date, "yyyy-MM-dd"),
+        reason: wfhForm.reason
+      });
+      toast.success("WFH request submitted!");
+      setWfhDialogOpen(false);
+      setWfhForm({ date: null, reason: "" });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to submit WFH request");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelWfh = async (wfhId) => {
+    try {
+      await api.delete(`/wfh/${wfhId}`);
+      toast.success("WFH request cancelled");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to cancel WFH request");
+    }
+  };
+
   const handleDownloadPayslip = async (payslipId) => {
     try {
       const response = await api.get(`/payslip/download/${payslipId}`, {
@@ -342,6 +382,14 @@ export default function EmployeeDashboard() {
           >
             <ChartBar className="h-5 w-5" weight="duotone" />
             <span>Work Summary</span>
+          </button>
+          <button
+            data-testid="wfh-tab"
+            onClick={() => setActiveTab("wfh")}
+            className={activeTab === "wfh" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <Laptop className="h-5 w-5" weight="duotone" />
+            <span>Work From Home</span>
           </button>
           <button
             data-testid="holidays-tab"
@@ -1103,6 +1151,132 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
             )}
+          </>
+        )}
+
+        {/* WFH Tab */}
+        {activeTab === "wfh" && (
+          <>
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Work From Home</h1>
+                <p className="text-gray-500 mt-1">Request and track your WFH days</p>
+              </div>
+              <Dialog open={wfhDialogOpen} onOpenChange={setWfhDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button data-testid="request-wfh-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70]">
+                    <Laptop className="h-4 w-4 mr-2" /> Request WFH
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Request Work From Home</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Date</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="wfh-date-picker">
+                            <CalendarBlank className="mr-2 h-4 w-4" />
+                            {wfhForm.date ? format(wfhForm.date, "PPP") : "Select date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar mode="single" selected={wfhForm.date} onSelect={(date) => setWfhForm({ ...wfhForm, date })} />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Reason</Label>
+                      <Textarea
+                        data-testid="wfh-reason"
+                        value={wfhForm.reason}
+                        onChange={(e) => setWfhForm({ ...wfhForm, reason: e.target.value })}
+                        placeholder="Why do you need to work from home?"
+                      />
+                    </div>
+                    <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-700">
+                      Monthly WFH Balance: <strong>{wfhBalance.remaining}</strong> of {wfhBalance.limit} days remaining
+                    </div>
+                    <Button
+                      data-testid="submit-wfh-btn"
+                      onClick={handleRequestWfh}
+                      disabled={loading}
+                      className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                    >
+                      Submit Request
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            {/* WFH Balance Card */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-white border border-gray-200 rounded-sm p-4">
+                <p className="text-xs text-gray-500 mb-1">Monthly Limit</p>
+                <p className="text-2xl font-bold text-gray-900">{wfhBalance.limit}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-sm p-4">
+                <p className="text-xs text-gray-500 mb-1">Used</p>
+                <p className="text-2xl font-bold text-[#002FA7]">{wfhBalance.used}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-sm p-4">
+                <p className="text-xs text-gray-500 mb-1">Remaining</p>
+                <p className="text-2xl font-bold text-[#00C853]">{wfhBalance.remaining}</p>
+              </div>
+            </div>
+
+            {/* WFH Requests Table */}
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reason</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reviewed By</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wfhRequests.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center py-8 text-gray-400">No WFH requests yet</td></tr>
+                  ) : (
+                    wfhRequests.map((req) => (
+                      <tr key={req.id} data-testid={`wfh-request-${req.id}`} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="py-3 px-4 text-sm font-medium text-gray-900">{req.date}</td>
+                        <td className="py-3 px-4 text-sm text-gray-600 max-w-[250px] truncate">{req.reason}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            req.status === "approved" ? "bg-green-100 text-green-700" :
+                            req.status === "rejected" ? "bg-red-100 text-red-700" :
+                            "bg-yellow-100 text-yellow-700"
+                          }`}>
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">{req.reviewed_by || "-"}</td>
+                        <td className="py-3 px-4 text-right">
+                          {req.status === "pending" && (
+                            <Button
+                              data-testid={`cancel-wfh-${req.id}`}
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleCancelWfh(req.id)}
+                              className="text-red-600 hover:text-red-700 h-8"
+                            >
+                              <Trash className="h-4 w-4 mr-1" /> Cancel
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
 

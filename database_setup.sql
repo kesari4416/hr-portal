@@ -160,6 +160,24 @@ CREATE TABLE IF NOT EXISTS policies (
 );
 
 -- =============================================
+-- 9. WFH REQUESTS TABLE
+-- Work From Home request/approval flow
+-- =============================================
+CREATE TABLE IF NOT EXISTS wfh_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    user_name VARCHAR(255),
+    user_email VARCHAR(255),
+    date VARCHAR(20),
+    reason TEXT,
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at VARCHAR(64),
+    reviewed_by VARCHAR(255),
+    reviewed_at VARCHAR(64),
+    INDEX idx_user_date (user_id, date)
+);
+
+-- =============================================
 -- VERIFY TABLES
 -- =============================================
 SHOW TABLES;

@@ -10,7 +10,7 @@ import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple
+  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop
 } from "@phosphor-icons/react";
 import { useRef } from "react";
 
@@ -57,6 +57,7 @@ export default function AdminDashboard() {
   const [payslips, setPayslips] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [policies, setPolicies] = useState([]);
+  const [wfhRequests, setWfhRequests] = useState([]);
   const [policyDialogOpen, setPolicyDialogOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState(null);
   const [policyForm, setPolicyForm] = useState({ title: "", category: "", content: "", icon: "article", sort_order: 0 });
@@ -101,7 +102,8 @@ export default function AdminDashboard() {
     casual_leave: 0,
     sick_leave: 0,
     permission_hours: 2,
-    role: "employee"
+    role: "employee",
+    wfh_limit: 4
   });
 
   const fetchData = useCallback(async () => {
@@ -113,7 +115,8 @@ export default function AdminDashboard() {
         api.get("/admin/attendance"),
         api.get("/admin/permissions"),
         api.get("/holidays/list"),
-        api.get("/policy/list")
+        api.get("/policy/list"),
+        api.get("/admin/wfh-requests")
       ];
       // Only admins can access payslips
       if (user?.role === "admin") {
@@ -127,8 +130,9 @@ export default function AdminDashboard() {
       setPermissionRequests(results[4].data);
       setHolidays(results[5].data);
       setPolicies(results[6].data);
-      if (user?.role === "admin" && results[7]) {
-        setPayslips(results[7].data);
+      setWfhRequests(results[7].data);
+      if (user?.role === "admin" && results[8]) {
+        setPayslips(results[8].data);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -290,6 +294,16 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleWfhAction = async (wfhId, action) => {
+    try {
+      await api.put(`/admin/wfh-requests/${wfhId}?action=${action}`);
+      toast.success(`WFH request ${action}d`);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to process WFH request");
+    }
+  };
+
   const openEditModal = (employee) => {
     setSelectedEmployee(employee);
     setEditForm({
@@ -299,7 +313,8 @@ export default function AdminDashboard() {
       casual_leave: employee.casual_leave || 12,
       sick_leave: employee.sick_leave || 3,
       permission_hours: employee.permission_hours || 2,
-      role: employee.role || "employee"
+      role: employee.role || "employee",
+      wfh_limit: employee.wfh_limit ?? 4
     });
     setEditEmployeeOpen(true);
   };
@@ -476,6 +491,7 @@ export default function AdminDashboard() {
     { id: "employees", label: "Employees", icon: Users, adminOnly: true },
     { id: "payslips", label: "Payslips", icon: Receipt, adminOnly: true },
     { id: "leaves", label: "Leave Requests", icon: CalendarCheck },
+    { id: "wfh", label: "WFH Requests", icon: Laptop },
     { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
     { id: "holidays", label: "Holidays", icon: CalendarStar },
@@ -884,6 +900,15 @@ export default function AdminDashboard() {
                         onChange={(e) => setEditForm({ ...editForm, sick_leave: parseInt(e.target.value) || 0 })}
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>WFH Limit (days/month)</Label>
+                      <Input
+                        data-testid="edit-wfh-limit"
+                        type="number"
+                        value={editForm.wfh_limit}
+                        onChange={(e) => setEditForm({ ...editForm, wfh_limit: parseInt(e.target.value) || 0 })}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Role</Label>
@@ -1223,6 +1248,76 @@ export default function AdminDashboard() {
                           )}
                           {req.status !== "pending" && req.reviewed_by && (
                             <p className="text-xs text-gray-500">by {req.reviewed_by}</p>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* WFH Requests Tab */}
+        {activeTab === "wfh" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Work From Home Requests</h1>
+              <p className="text-gray-500 mt-1">Manage employee WFH requests</p>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Employee</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reason</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reviewed By</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wfhRequests.length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-8 text-gray-400">No WFH requests</td></tr>
+                  ) : (
+                    wfhRequests.map((req) => (
+                      <tr key={req.id} data-testid={`wfh-row-${req.id}`} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="py-3 px-4 text-sm font-medium text-gray-900">{req.user_name}</td>
+                        <td className="py-3 px-4 text-sm text-gray-600">{req.date}</td>
+                        <td className="py-3 px-4 text-sm text-gray-600 max-w-[200px] truncate">{req.reason}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            req.status === "approved" ? "bg-green-100 text-green-700" :
+                            req.status === "rejected" ? "bg-red-100 text-red-700" :
+                            "bg-yellow-100 text-yellow-700"
+                          }`}>
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">{req.reviewed_by || "-"}</td>
+                        <td className="py-3 px-4 text-right">
+                          {req.status === "pending" && (
+                            <div className="flex gap-2 justify-end">
+                              <Button
+                                data-testid={`wfh-approve-${req.id}`}
+                                size="sm"
+                                onClick={() => handleWfhAction(req.id, "approve")}
+                                className="bg-green-600 hover:bg-green-700 text-white h-8 px-3"
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                data-testid={`wfh-reject-${req.id}`}
+                                size="sm"
+                                onClick={() => handleWfhAction(req.id, "reject")}
+                                className="bg-red-600 hover:bg-red-700 text-white h-8 px-3"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
                           )}
                         </td>
                       </tr>

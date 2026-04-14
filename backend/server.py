@@ -158,6 +158,7 @@ payslip_router = APIRouter(prefix="/payslip")
 reports_router = APIRouter(prefix="/reports")
 holidays_router = APIRouter(prefix="/holidays")
 policy_router = APIRouter(prefix="/policy")
+wfh_router = APIRouter(prefix="/wfh")
 
 # Constants
 REQUIRED_WORK_HOURS = 8.0
@@ -227,11 +228,12 @@ class EmployeeUpdate(BaseModel):
     name: Optional[str] = None
     department: Optional[str] = None
     position: Optional[str] = None
-    casual_leave: Optional[int] = None
-    sick_leave: Optional[int] = None
+    casual_leave: Optional[float] = None
+    sick_leave: Optional[float] = None
     permission_hours: Optional[float] = None
     shift: Optional[str] = None
     role: Optional[str] = None
+    wfh_limit: Optional[int] = None
 
 class PermissionRequest(BaseModel):
     duration_minutes: int
@@ -251,6 +253,10 @@ class ShiftAssign(BaseModel):
 
 class PasswordReset(BaseModel):
     new_password: str
+
+class WFHRequest(BaseModel):
+    date: str
+    reason: str
 
 class PolicyCreate(BaseModel):
     title: str
@@ -580,7 +586,7 @@ async def get_my_shift(request: Request):
 @leave_router.get("/balance")
 async def get_leave_balance(request: Request):
     user = await get_current_user(request)
-    return {"casual": user.get("casual_leave", 12), "sick": user.get("sick_leave", 3), "loss_of_pay": user.get("loss_of_pay", 0)}
+    return {"casual": user.get("casual_leave", 12), "sick": user.get("sick_leave", 3), "loss_of_pay": user.get("loss_of_pay", 0), "wfh_limit": user.get("wfh_limit", 4)}
 
 @leave_router.post("/request")
 async def create_leave_request(leave_data: LeaveRequest, request: Request):
@@ -649,7 +655,7 @@ async def cancel_leave_request(leave_id: str, request: Request):
 @admin_router.get("/employees")
 async def get_all_employees(request: Request):
     await require_admin_or_manager(request)
-    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code FROM users ORDER BY created_at DESC", fetch_all=True)
+    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit FROM users ORDER BY created_at DESC", fetch_all=True)
     result = []
     for emp in (rows or []):
         e = dict(emp)
@@ -679,13 +685,13 @@ async def create_employee(user_data: UserRegister, request: Request):
     employee_code = f"SC{next_num}"
 
     user_id = await execute_query(
-        """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, employee_code)
-           VALUES (%s, %s, %s, %s, %s, %s, '', %s, 12, 3, 0, %s, 0, '', %s)""",
+        """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, employee_code, wfh_limit)
+           VALUES (%s, %s, %s, %s, %s, %s, '', %s, 12, 3, 0, %s, 0, '', %s, 4)""",
         (email, hashed, user_data.name, role, user_data.department, user_data.position, datetime.now(timezone.utc).isoformat(), MONTHLY_PERMISSION_HOURS, employee_code),
         last_id=True
     )
 
-    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code}
+    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code, "wfh_limit": 4}
 
 @admin_router.put("/employees/{employee_id}")
 async def update_employee(employee_id: str, update_data: EmployeeUpdate, request: Request):
@@ -702,7 +708,7 @@ async def update_employee(employee_id: str, update_data: EmployeeUpdate, request
     values = list(update_dict.values()) + [int(employee_id)]
     await execute_query(f"UPDATE users SET {set_clause} WHERE id = %s", tuple(values))
 
-    emp = await execute_query("SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
+    emp = await execute_query("SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     emp["id"] = str(emp.pop("id"))
@@ -1509,6 +1515,133 @@ async def check_date(date: str):
     holiday = is_holiday(date)
     return {"date": date, "is_weekend": weekend, "is_holiday": holiday, "holiday_name": get_holiday_name(date) if holiday else "", "is_working_day": not weekend and not holiday}
 
+# ============== WFH ROUTES ==============
+
+@wfh_router.post("/request")
+async def create_wfh_request(wfh_data: WFHRequest, request: Request):
+    user = await get_current_user(request)
+    # Check if date is a working day
+    if is_weekend(wfh_data.date) or is_holiday(wfh_data.date):
+        raise HTTPException(status_code=400, detail="Cannot request WFH on weekends or holidays")
+    # Check duplicate
+    existing = await execute_query(
+        "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status != 'rejected'",
+        (user["id"], wfh_data.date), fetch_one=True
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="WFH request already exists for this date")
+    # Check monthly limit
+    month_start = wfh_data.date[:7] + "-01"
+    month_num = int(wfh_data.date[5:7])
+    year_num = int(wfh_data.date[:4])
+    if month_num == 12:
+        month_end = f"{year_num + 1}-01-01"
+    else:
+        month_end = f"{year_num}-{month_num + 1:02d}-01"
+    used = await execute_query(
+        "SELECT COUNT(*) as cnt FROM wfh_requests WHERE user_id = %s AND date >= %s AND date < %s AND status IN ('pending', 'approved')",
+        (user["id"], month_start, month_end), fetch_one=True
+    )
+    wfh_limit = user.get("wfh_limit", 4) or 4
+    used_count = used["cnt"] if used else 0
+    if used_count >= wfh_limit:
+        raise HTTPException(status_code=400, detail=f"Monthly WFH limit reached ({wfh_limit} days)")
+
+    wfh_id = await execute_query(
+        """INSERT INTO wfh_requests (user_id, user_name, user_email, date, reason, status, created_at)
+           VALUES (%s, %s, %s, %s, %s, 'pending', %s)""",
+        (user["id"], user["name"], user.get("email", ""), wfh_data.date, wfh_data.reason, datetime.now(timezone.utc).isoformat()),
+        last_id=True
+    )
+    return {"id": str(wfh_id), "user_id": str(user["id"]), "user_name": user["name"], "date": wfh_data.date, "reason": wfh_data.reason, "status": "pending", "created_at": datetime.now(timezone.utc).isoformat()}
+
+@wfh_router.get("/my-requests")
+async def get_my_wfh_requests(request: Request):
+    user = await get_current_user(request)
+    rows = await execute_query(
+        "SELECT * FROM wfh_requests WHERE user_id = %s ORDER BY created_at DESC",
+        (user["id"],), fetch_all=True
+    )
+    result = []
+    for r in (rows or []):
+        d = dict(r)
+        d["id"] = str(d.pop("id"))
+        d["user_id"] = str(d["user_id"])
+        result.append(d)
+    return result
+
+@wfh_router.get("/balance")
+async def get_wfh_balance(request: Request):
+    user = await get_current_user(request)
+    now = datetime.now(timezone.utc)
+    month_start = f"{now.year}-{now.month:02d}-01"
+    if now.month == 12:
+        month_end = f"{now.year + 1}-01-01"
+    else:
+        month_end = f"{now.year}-{now.month + 1:02d}-01"
+    used = await execute_query(
+        "SELECT COUNT(*) as cnt FROM wfh_requests WHERE user_id = %s AND date >= %s AND date < %s AND status IN ('pending', 'approved')",
+        (user["id"], month_start, month_end), fetch_one=True
+    )
+    wfh_limit = user.get("wfh_limit", 4) or 4
+    used_count = used["cnt"] if used else 0
+    return {"limit": wfh_limit, "used": used_count, "remaining": max(0, wfh_limit - used_count)}
+
+@wfh_router.delete("/{wfh_id}")
+async def cancel_wfh_request(wfh_id: str, request: Request):
+    user = await get_current_user(request)
+    wfh_req = await execute_query("SELECT * FROM wfh_requests WHERE id = %s", (int(wfh_id),), fetch_one=True)
+    if not wfh_req:
+        raise HTTPException(status_code=404, detail="WFH request not found")
+    if wfh_req["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if wfh_req["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Can only cancel pending requests")
+    await execute_query("DELETE FROM wfh_requests WHERE id = %s", (int(wfh_id),))
+    return {"message": "WFH request cancelled"}
+
+# Admin WFH management
+@admin_router.get("/wfh-requests")
+async def get_all_wfh_requests(request: Request, status: Optional[str] = None):
+    user = await require_admin_or_manager(request)
+    query = "SELECT * FROM wfh_requests"
+    args = []
+    conditions = []
+    if status:
+        conditions.append("status = %s")
+        args.append(status)
+    if user["role"] == "manager":
+        conditions.append("user_id IN (SELECT id FROM users WHERE department = %s)")
+        args.append(user.get("department", ""))
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY created_at DESC"
+    rows = await execute_query(query, tuple(args) if args else None, fetch_all=True)
+    result = []
+    for r in (rows or []):
+        d = dict(r)
+        d["id"] = str(d.pop("id"))
+        d["user_id"] = str(d["user_id"])
+        result.append(d)
+    return result
+
+@admin_router.put("/wfh-requests/{wfh_id}")
+async def review_wfh_request(wfh_id: str, request: Request, action: str):
+    reviewer = await require_admin_or_manager(request)
+    if action not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+    wfh_req = await execute_query("SELECT * FROM wfh_requests WHERE id = %s", (int(wfh_id),), fetch_one=True)
+    if not wfh_req:
+        raise HTTPException(status_code=404, detail="WFH request not found")
+    if wfh_req["status"] != "pending":
+        raise HTTPException(status_code=400, detail="WFH request already processed")
+    new_status = "approved" if action == "approve" else "rejected"
+    await execute_query(
+        "UPDATE wfh_requests SET status = %s, reviewed_by = %s, reviewed_at = %s WHERE id = %s",
+        (new_status, reviewer["name"], datetime.now(timezone.utc).isoformat(), int(wfh_id))
+    )
+    return {"message": f"WFH request {new_status}"}
+
 # ============== INCLUDE ROUTERS ==============
 
 api_router.include_router(auth_router)
@@ -1521,6 +1654,7 @@ api_router.include_router(payslip_router)
 api_router.include_router(reports_router)
 api_router.include_router(holidays_router)
 api_router.include_router(policy_router)
+api_router.include_router(wfh_router)
 
 @api_router.get("/")
 async def root():
@@ -1582,6 +1716,26 @@ async def init_database():
                     shift VARCHAR(50) DEFAULT '',
                     basic_salary FLOAT DEFAULT 0,
                     employee_code VARCHAR(20) DEFAULT ''
+                )
+            """)
+            # Add wfh_limit column if missing
+            try:
+                await cur.execute("SELECT wfh_limit FROM users LIMIT 1")
+            except Exception:
+                await cur.execute("ALTER TABLE users ADD COLUMN wfh_limit INT DEFAULT 4")
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS wfh_requests (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    user_name VARCHAR(255),
+                    user_email VARCHAR(255),
+                    date VARCHAR(20),
+                    reason TEXT,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    created_at VARCHAR(64),
+                    reviewed_by VARCHAR(255),
+                    reviewed_at VARCHAR(64),
+                    INDEX idx_user_date (user_id, date)
                 )
             """)
             await cur.execute("""

@@ -58,10 +58,14 @@ New Year (Jan 1), Republic Day (Jan 26), Good Friday (Apr 3), Vishu (Apr 14), Ma
 users, attendance, breaks, leave_requests, permissions, payslips, leave_deductions
 
 ## Recent Changes
-- [x] Removed "Made with Emergent" badge from footer (April 9, 2026)
-- [x] Updated page title to "Sparkcurve | HR Portal" (April 9, 2026)
-- [x] Completed Company Policy feature - Admin CRUD + Employee read-only view (April 9, 2026)
-- [x] Added Sparkcurve logo branding to login page and sidebar (April 9, 2026)
+- [x] Custom CL/SL per employee - Admin can set different values (April 14, 2026)
+- [x] Work From Home feature - Employee requests, Admin approves/rejects, monthly limit (April 14, 2026)
+- [x] WFH limit configurable per employee by Admin (April 14, 2026)
+- [x] Employee ID series SC24XXX auto-generated (April 13, 2026)
+- [x] Payslip redesigned to match Sparkcurv format with logo (April 12, 2026)
+- [x] Cookie secure=True for HTTPS deployments (April 12, 2026)
+- [x] Removed "Made with Emergent" badge (April 9, 2026)
+- [x] Company Policy feature completed (April 9, 2026)
 
 ## Backlog
 - [ ] Accessibility (aria-describedby on dialogs) - LOW
