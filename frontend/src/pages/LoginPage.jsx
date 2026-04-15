@@ -45,8 +45,9 @@ export default function LoginPage() {
           <div className="flex items-center gap-3 mb-12">
             <img 
               src="/sparkcurve-logo.png" 
-              alt="Sparkcurve Logo"
-              className="h-10 w-10 rounded-lg"
+              alt="SparkCurv Technologies"
+              className="h-14 w-auto object-contain"
+              style={{ mixBlendMode: 'multiply' }}
             />
             <span className="text-2xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
           </div>

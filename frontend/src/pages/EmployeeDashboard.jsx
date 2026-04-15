@@ -370,8 +370,9 @@ export default function EmployeeDashboard() {
           <div className="flex items-center gap-3">
             <img 
               src="/sparkcurve-logo.png" 
-              alt="Sparkcurve Logo"
-              className="h-9 w-9 rounded-lg"
+              alt="SparkCurv Technologies"
+              className="h-12 w-auto object-contain"
+              style={{ mixBlendMode: 'multiply' }}
             />
             <span className="text-xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
           </div>
