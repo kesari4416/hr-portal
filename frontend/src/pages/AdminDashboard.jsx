@@ -7,6 +7,15 @@ import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
+
+// Convert decimal hours (e.g., 8.57) to "Xh Ym" format
+const formatHours = (decimalHours) => {
+  if (!decimalHours) return "—";
+  const hours = Math.floor(decimalHours);
+  const minutes = Math.round((decimalHours - hours) * 60);
+  return `${hours}h ${minutes}m`;
+};
+
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
@@ -1431,7 +1440,7 @@ export default function AdminDashboard() {
                         <td className="table-cell">{rec.total_break_minutes || 0} min</td>
                         <td className="table-cell">
                           <span className={rec.working_hours && rec.working_hours < 8 ? "text-[#FF2E00] font-medium" : ""}>
-                            {rec.working_hours ? `${rec.working_hours.toFixed(2)}h` : "—"}
+                            {rec.working_hours ? formatHours(rec.working_hours) : "—"}
                           </span>
                         </td>
                         <td className="table-cell">

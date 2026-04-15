@@ -10,6 +10,14 @@ import { Calendar } from "../components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { toast } from "sonner";
 import { format } from "date-fns";
+
+// Convert decimal hours (e.g., 8.57) to "Xh Ym" format
+const formatHours = (decimalHours) => {
+  if (!decimalHours) return "—";
+  const hours = Math.floor(decimalHours);
+  const minutes = Math.round((decimalHours - hours) * 60);
+  return `${hours}h ${minutes}m`;
+};
 import { 
   SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
@@ -179,7 +187,7 @@ export default function EmployeeDashboard() {
       const response = await api.post("/attendance/clock-out");
       const workingHours = response.data?.working_hours || 0;
       if (workingHours < 8) {
-        toast.warning(`Clocked out with ${workingHours.toFixed(2)} hours (less than 8 hours required)`);
+        toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 8 hours required)`);
       } else {
         toast.success("Clocked out successfully!");
       }
@@ -497,7 +505,7 @@ export default function EmployeeDashboard() {
                   </p>
                   {attendanceStatus.clocked_in && !attendanceStatus.on_break && (
                     <p className={`text-xs mt-1 ${currentWorkingHours >= 8 ? 'text-[#00C853]' : 'text-[#FF2E00]'}`}>
-                      {currentWorkingHours >= 8 ? "Minimum 8 hours reached" : `Need ${(8 - currentWorkingHours).toFixed(1)} more hours for minimum`}
+                      {currentWorkingHours >= 8 ? "Minimum 8 hours reached" : `Need ${formatHours(8 - currentWorkingHours)} more for minimum`}
                     </p>
                   )}
                 </div>
@@ -968,7 +976,7 @@ export default function EmployeeDashboard() {
                             <td className="table-cell">{record.total_break_minutes || 0} min</td>
                             <td className="table-cell">
                               <span className={record.working_hours && record.working_hours < 8 ? "text-[#FF2E00]" : ""}>
-                                {record.working_hours ? `${record.working_hours.toFixed(2)}h` : "—"}
+                                {record.working_hours ? formatHours(record.working_hours) : "—"}
                               </span>
                             </td>
                             <td className="table-cell">
@@ -1014,7 +1022,7 @@ export default function EmployeeDashboard() {
                   <Clock className="h-5 w-5 text-[#00C853]" weight="duotone" />
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Hours</span>
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{workingSummary.total_working_hours}h</p>
+                <p className="text-3xl font-bold text-gray-900">{formatHours(workingSummary.total_working_hours)}</p>
                 <p className="text-sm text-gray-500">avg {workingSummary.average_hours_per_day}h/day</p>
               </div>
 
