@@ -186,8 +186,8 @@ export default function EmployeeDashboard() {
     try {
       const response = await api.post("/attendance/clock-out");
       const workingHours = response.data?.working_hours || 0;
-      if (workingHours < 8) {
-        toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 8 hours required)`);
+      if (workingHours < 7.5) {
+        toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 7h 30m required)`);
       } else {
         toast.success("Clocked out successfully!");
       }
@@ -359,7 +359,7 @@ export default function EmployeeDashboard() {
 
   // Calculate current working hours
   const currentWorkingHours = elapsedTime / 3600;
-  const isShortDay = currentWorkingHours < 8 && attendanceStatus.clocked_in;
+  const isShortDay = currentWorkingHours < 7.5 && attendanceStatus.clocked_in;
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -505,8 +505,8 @@ export default function EmployeeDashboard() {
                     {attendanceStatus.on_break ? "Break Duration" : attendanceStatus.clocked_in ? "Working Time" : "Not Clocked In"}
                   </p>
                   {attendanceStatus.clocked_in && !attendanceStatus.on_break && (
-                    <p className={`text-xs mt-1 ${currentWorkingHours >= 8 ? 'text-[#00C853]' : 'text-[#FF2E00]'}`}>
-                      {currentWorkingHours >= 8 ? "Minimum 8 hours reached" : `Need ${formatHours(8 - currentWorkingHours)} more for minimum`}
+                    <p className={`text-xs mt-1 ${currentWorkingHours >= 7.5 ? 'text-[#00C853]' : 'text-[#FF2E00]'}`}>
+                      {currentWorkingHours >= 7.5 ? "Minimum 7h 30m reached" : `Need ${formatHours(7.5 - currentWorkingHours)} more for minimum`}
                     </p>
                   )}
                 </div>
@@ -521,7 +521,7 @@ export default function EmployeeDashboard() {
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
                         className={`h-2 rounded-full transition-all ${
-                          currentWorkingHours >= 8 ? 'bg-[#00C853]' : 'bg-[#FFC107]'
+                          currentWorkingHours >= 7.5 ? 'bg-[#00C853]' : 'bg-[#FFC107]'
                         }`}
                         style={{ width: `${Math.min(100, currentWorkingHours / 8.5 * 100)}%` }}
                       ></div>
@@ -976,7 +976,7 @@ export default function EmployeeDashboard() {
                             <td className="table-cell">{record.clock_out ? format(new Date(record.clock_out), "h:mm a") : "—"}</td>
                             <td className="table-cell">{record.total_break_minutes || 0} min</td>
                             <td className="table-cell">
-                              <span className={record.working_hours && record.working_hours < 8 ? "text-[#FF2E00]" : ""}>
+                              <span className={record.working_hours && record.working_hours < 7.5 ? "text-[#FF2E00]" : ""}>
                                 {record.working_hours ? formatHours(record.working_hours) : "—"}
                               </span>
                             </td>
@@ -1033,7 +1033,7 @@ export default function EmployeeDashboard() {
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Short Days</span>
                 </div>
                 <p className="text-3xl font-bold text-gray-900">{workingSummary.short_days_count}</p>
-                <p className="text-sm text-gray-500">less than 8 hours</p>
+                <p className="text-sm text-gray-500">less than 7h 30m</p>
               </div>
 
               <div className="metric-card" style={{ borderLeftColor: '#FFC107' }}>
@@ -1063,7 +1063,7 @@ export default function EmployeeDashboard() {
                     </li>
                     <li className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-[#FFC107]"></div>
-                      Less than 8 hours = <strong>Short Day</strong>
+                      Less than 7h 30m = <strong>Short Day</strong>
                     </li>
                   </ul>
                 </div>

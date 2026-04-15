@@ -1440,7 +1440,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="table-cell">{rec.total_break_minutes || 0} min</td>
                         <td className="table-cell">
-                          <span className={rec.working_hours && rec.working_hours < 8 ? "text-[#FF2E00] font-medium" : ""}>
+                          <span className={rec.working_hours && rec.working_hours < 7.5 ? "text-[#FF2E00] font-medium" : ""}>
                             {rec.working_hours ? formatHours(rec.working_hours) : "—"}
                           </span>
                         </td>

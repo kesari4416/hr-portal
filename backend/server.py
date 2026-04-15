@@ -161,7 +161,7 @@ policy_router = APIRouter(prefix="/policy")
 wfh_router = APIRouter(prefix="/wfh")
 
 # Constants
-REQUIRED_WORK_HOURS = 8.0
+REQUIRED_WORK_HOURS = 7.5
 TOTAL_WORK_HOURS = 8.5
 MONTHLY_PERMISSION_HOURS = 2
 MAX_PERMISSION_PER_USE = 1
