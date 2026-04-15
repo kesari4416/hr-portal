@@ -388,7 +388,9 @@ async def clock_out(request: Request):
 
     clock_in_time = datetime.fromisoformat(attendance["clock_in"])
     total_time_minutes = (clock_out_time - clock_in_time).total_seconds() / 60
-    working_minutes = total_time_minutes - total_break
+    # Only deduct break time that exceeds the allowed 30 min break
+    excess_break = max(0, total_break - MAX_BREAK_MINUTES)
+    working_minutes = total_time_minutes - excess_break
     working_hours = working_minutes / 60
     is_short_day = 1 if working_hours < REQUIRED_WORK_HOURS else 0
 
