@@ -7,6 +7,12 @@ import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { 
+  SignOut, Users, CalendarCheck, Clock, House, 
+  UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
+  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop
+} from "@phosphor-icons/react";
+import { useRef } from "react";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
 const formatHours = (decimalHours) => {
@@ -15,13 +21,6 @@ const formatHours = (decimalHours) => {
   const minutes = Math.round((decimalHours - hours) * 60);
   return `${hours}h ${minutes}m`;
 };
-
-import { 
-  SignOut, Users, CalendarCheck, Clock, House, 
-  UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop
-} from "@phosphor-icons/react";
-import { useRef } from "react";
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
 

@@ -10,6 +10,12 @@ import { Calendar } from "../components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { 
+  SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
+  Briefcase, House, ClockCounterClockwise, CalendarCheck,
+  CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
+  CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash
+} from "@phosphor-icons/react";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
 const formatHours = (decimalHours) => {
@@ -18,12 +24,6 @@ const formatHours = (decimalHours) => {
   const minutes = Math.round((decimalHours - hours) * 60);
   return `${hours}h ${minutes}m`;
 };
-import { 
-  SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
-  Briefcase, House, ClockCounterClockwise, CalendarCheck,
-  CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
-  CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash
-} from "@phosphor-icons/react";
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
 const getAvatarUrl = (url) => {
