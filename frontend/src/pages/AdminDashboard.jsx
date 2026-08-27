@@ -16,7 +16,7 @@ import {
   TreeStructure, ShieldCheck
 } from "@phosphor-icons/react";
 import { CRApproveDialog } from "../components/CRApproveDialog";
-import { OrgTreeNode, buildOrgTree } from "../components/OrgTreeNode";
+import { OrgTreeNode, OrgTreeView } from "../components/OrgTreeNode";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -2915,20 +2915,13 @@ export default function AdminDashboard() {
                 {isAdmin && <p className="text-sm mt-1">Click "Add Person" to start building the worker tree</p>}
               </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-xl p-8 overflow-x-auto" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
-                <div className="flex gap-16 justify-center">
-                  {buildOrgTree(orgNodes).map(root => (
-                    <OrgTreeNode
-                      key={root.id}
-                      node={root}
-                      isAdmin={isAdmin}
-                      onEdit={(node) => { setEditingOrgNode(node); setOrgNodeForm({ employee_name: node.employee_name, job_title: node.job_title || "", description: node.description || "", parent_id: node.parent_id || "", sort_order: node.sort_order || 0 }); setOrgNodeDialogOpen(true); }}
-                      onDelete={handleDeleteOrgNode}
-                      onImageUpload={handleOrgNodeImageUpload}
-                    />
-                  ))}
-                </div>
-              </div>
+              <OrgTreeNode
+                nodes={orgNodes}
+                isAdmin={isAdmin}
+                onEdit={(node) => { setEditingOrgNode(node); setOrgNodeForm({ employee_name: node.employee_name, job_title: node.job_title || "", description: node.description || "", parent_id: node.parent_id || "", sort_order: node.sort_order || 0 }); setOrgNodeDialogOpen(true); }}
+                onDelete={handleDeleteOrgNode}
+                onImageUpload={handleOrgNodeImageUpload}
+              />
             )}
 
             {/* Org Node Add/Edit Dialog */}

@@ -18,7 +18,7 @@ import {
   CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
   GitPullRequest, Plus, Sun, Moon, TreeStructure
 } from "@phosphor-icons/react";
-import { buildOrgTree } from "../components/OrgTreeNode";
+import { OrgTreeView } from "../components/OrgTreeNode";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
 const formatHours = (decimalHours) => {
@@ -467,51 +467,6 @@ export default function EmployeeDashboard() {
     if (rolePermissions[key] === undefined) return true;
     return rolePermissions[key] === true;
   };
-
-  // Read-only org tree node (view-only for employees/managers) — iterative BFS layout
-  function OrgTreeViewNode({ node }) {
-    const levels = [];
-    const queue = [{ n: node, depth: 0 }];
-    while (queue.length > 0) {
-      const { n, depth } = queue.shift();
-      if (!levels[depth]) levels[depth] = [];
-      levels[depth].push(n);
-      (n.children || []).forEach(c => queue.push({ n: c, depth: depth + 1 }));
-    }
-    return (
-      <div className="flex flex-col items-center gap-0">
-        {levels.map((levelNodes, depth) => (
-          <div key={depth} className="flex flex-col items-center">
-            {depth > 0 && <div className="w-0.5 h-6 bg-slate-300" />}
-            <div className="flex gap-8 relative">
-              {levelNodes.length > 1 && depth > 0 && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2" style={{ width: "calc(100% - 80px)", height: 1, background: "#CBD5E1" }} />
-              )}
-              {levelNodes.map(n => (
-                <div key={n.id} className="flex flex-col items-center">
-                  {depth > 0 && <div className="w-0.5 h-6 bg-slate-300" />}
-                  <div data-testid={`org-node-view-${n.id}`} className="bg-white border-2 border-slate-200 rounded-xl p-4 flex flex-col items-center text-center" style={{ width: 152 }}>
-                    <div className="mb-2">
-                      {n.image_url ? (
-                        <img src={n.image_url} alt={n.employee_name} className="w-14 h-14 rounded-full object-cover border-2 border-slate-200" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-full bg-blue-50 border-2 border-blue-100 flex items-center justify-center">
-                          <span className="text-xl font-bold text-[#002FA7]">{n.employee_name?.[0] || "?"}</span>
-                        </div>
-                      )}
-                    </div>
-                    <p className="font-bold text-slate-900 text-sm leading-tight">{n.employee_name}</p>
-                    {n.job_title && <p className="text-xs text-[#002FA7] font-semibold mt-0.5">{n.job_title}</p>}
-                    {n.description && <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{n.description}</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen transition-colors duration-200" style={{ background: 'var(--bg-page)' }}>
@@ -1986,13 +1941,7 @@ export default function EmployeeDashboard() {
                 <p className="text-sm mt-1">Contact your admin to build the worker tree</p>
               </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-xl p-8 overflow-x-auto" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
-                <div className="flex gap-16 justify-center">
-                  {buildOrgTree(orgNodes).map(root => (
-                    <OrgTreeViewNode key={root.id} node={root} />
-                  ))}
-                </div>
-              </div>
+              <OrgTreeView nodes={orgNodes} />
             )}
           </>
         )}
