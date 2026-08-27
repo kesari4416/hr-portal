@@ -589,6 +589,9 @@ export default function EmployeeDashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
               <p className="text-xs text-slate-400 truncate">{user?.department}</p>
+              {user?.employee_code && (
+                <p className="text-[10px] font-mono font-bold text-[#002FA7] truncate tracking-wide">{user.employee_code}</p>
+              )}
             </div>
             {/* Theme Toggle */}
             <button
