@@ -1,86 +1,95 @@
-# HR Portal - Product Requirements Document
+# Sparkcurv HR Portal — PRD
 
 ## Original Problem Statement
-Build HR portal for login all employees with Leave, Login, logout, break etc. Need frontend dashboard for admin and employee login and backend in Python.
+Build an HR portal for all employees with Leave, Login, logout, break etc., frontend dashboard for admin and employee login, and backend in Python.
 
-## Architecture
-- **Backend**: FastAPI (Python) on port 8001
-- **Frontend**: React with Tailwind CSS + Shadcn UI on port 3000
-- **Database**: MySQL (MariaDB) on localhost:3306 - Database: hr_portal
-- **Authentication**: JWT with httpOnly cookies
-- **Map**: Leaflet + OpenStreetMap (free, no API key)
-- **Geocoding**: Nominatim reverse geocoding (free)
+## Product Requirements
+- 3-tier roles: Admin, Manager, Employee
+- Attendance & hours tracking (8 hours/day minimum, 40 min allowed break)
+- Leave logic (Casual, Sick, Half-day support)
+- WFH limits/requests
+- Custom PDF Payslips
+- Shift management + Employee IDs
+- Payroll system (custom deductions)
+- Change Request (CR) system with 2-step approval (Manager → Admin) + auto-apply
+- Geofenced GPS Location Tracking (maps & geocoding via Nominatim + Leaflet)
+- Push/Polling Notifications
+- Attendance Heatmaps (4-week view, on-time vs late)
+- Break Location Alert badge
 
-## Role System (3-Tier)
-- **Admin**: Full access - manage employees, payslips, shifts, approve leaves/permissions/CRs, attendance export, office settings
-- **Manager**: Can approve/reject leaves, permissions, and CRs (step 1)
-- **Employee**: Clock in/out, breaks, leave/permission/WFH/CR requests, view payslips, salary structure
+## Tech Stack
+- **Frontend**: React, Tailwind CSS, Shadcn UI, Leaflet (react-leaflet), @phosphor-icons/react
+- **Backend**: FastAPI, Python, JWT Auth
+- **Database**: MySQL/MariaDB via `aiomysql` (raw SQL, no ORM)
+- **Fonts**: Outfit (headings), Manrope (body), JetBrains Mono (timers)
+- **Brand Color**: #002FA7 (deep royal blue)
 
-## Working Time Rules
-- Minimum working hours: 8 hours/day
-- Break allowance: 40 minutes (Lunch & break) — breaks within 40 min are not deducted
-- Short day: < 8 hours = short day, 3 short days = 0.5 day casual leave deduction
-- Flexible working time
+## Code Architecture
+```
+/app/
+├── backend/
+│   ├── server.py              # All routes (>2700 lines, needs refactor)
+│   ├── requirements.txt
+│   └── .env
+├── frontend/
+│   ├── src/
+│   │   ├── App.js
+│   │   ├── index.css          # Design system + component classes
+│   │   ├── contexts/AuthContext.jsx
+│   │   └── pages/
+│   │       ├── LoginPage.jsx
+│   │       ├── EmployeeDashboard.jsx
+│   │       └── AdminDashboard.jsx
+├── database_setup.sql
+└── setup.sh
+```
 
-## Location Tracking & Geofencing
-- GPS location captured on clock-in, clock-out, break start, break end (mandatory)
-- Reverse geocoded address stored via Nominatim
-- Office geofence: configurable lat/lng + radius (default 500m)
-- WFH exception: employees with approved WFH can clock in from anywhere
-- Admin map view: interactive Leaflet map showing employee locations per day
-- Table view: location address + Office/WFH badge per record
-- Break location alert: warning badge when employee breaks outside geofence
-
-## Leave Policy
-- Casual Leave: 12 days/year (custom per employee)
-- Sick Leave: 3 days/year (custom per employee)
-- Loss of Pay: Unlimited (salary deducted per day)
-- Half-day leave: supported, 1.5 days/month cap
-
-## Change Request (CR) System
-- Types: Installation, Maintenance, Software, Hardware, Access, Policy Change, General, Other
-- Anyone can raise a CR
-- 2-step approval: Manager → Admin
+## Key DB Schema
+- `users`: {id, employee_code, name, email, role, department, basic_salary, shift}
+- `attendance`: {id, user_id, clock_in, clock_out, latitude, longitude, address, break_outside_geofence, working_hours}
+- `breaks`: {id, attendance_id, start/end lat/lng, start/end address}
+- `leave_requests`: {id, user_id, leave_type, start_date, end_date, is_half_day, status}
+- `change_requests`: {id, requester_id, title, description, cr_type, status, manager_approval, admin_approval, metadata}
+- `payslips`: {id, user_id, month, year, basic_salary, total_deductions, net_pay}
+- `office_settings`: {id, latitude, longitude, radius_km, name}
 
 ## What's Been Implemented
-- [x] JWT authentication with httpOnly cookies (secure for HTTPS)
-- [x] 3-tier role system (Admin, Manager, Employee)
-- [x] Employee dashboard: clock in/out, breaks (40-min limit), leave/permission requests
-- [x] Admin dashboard: CRUD employees, analytics, payroll, shifts, attendance export
-- [x] Manager dashboard: approve/reject leaves, permissions, CRs
-- [x] Permission hours: 2h/month, max 1h per use
-- [x] PDF Payslip generation (ReportLab, Sparkcurv-branded)
-- [x] Attendance export to Excel (OpenPyXL)
-- [x] Shift management (General, Morning, Afternoon, Night)
-- [x] Holiday list + Weekend clock-in blocking
-- [x] Custom CL/SL per employee + WFH limits
-- [x] Employee ID series SC24XXX auto-generated
-- [x] Company Policy feature
-- [x] Payroll Module (Dashboard, Deductions, Process, Payslips sub-tabs)
-- [x] Employee Salary Tab (Earnings + Deductions + Net)
-- [x] Change Request (CR) System (2-step approval)
-- [x] GPS Location Tracking (mandatory on all actions, reverse geocoding, geofencing)
-- [x] Interactive Map View (Leaflet, office geofence circle, employee markers)
-- [x] Office Geofence Settings (admin configurable)
-- [x] **Push Notifications** (Aug 27, 2026): Browser Notification API, 30s polling, red badge count, dropdown with navigation
-- [x] **Attendance Heatmap** (Aug 27, 2026): 4-week grid in Overview, on-time/late/short/absent color coding per employee
-- [x] **Break Location Alert** (Aug 27, 2026): Orange warning badge in attendance table when break taken outside geofence
+
+### 2025-2026 (all sessions)
+- ✅ Email/Password JWT Auth, Role-based routing (Admin/Manager/Employee)
+- ✅ Attendance: Clock In/Out, Break, "Short Day" logic (< 8h), 40-min break limit
+- ✅ Leave Management: Casual/Sick/Half-day, Admin approval, leave balance deduction
+- ✅ WFH requests with approval
+- ✅ Permission requests (2h/month limit, max 1h per use)
+- ✅ Payroll: Salary setup, Custom deductions, Bulk processing, PDF payslips
+- ✅ Change Request (CR) system — 2-step approval flow (Manager → Admin)
+- ✅ GPS Geofenced Attendance — mandatory location capture, Nominatim geocoding
+- ✅ Interactive Leaflet Map — Admin attendance map view with geofence circle
+- ✅ Attendance Heatmap — 4-week overview (on-time/late/absent)
+- ✅ Break Location Alert — badge in admin attendance table
+- ✅ Polling Notifications — bell with badge for pending approvals
+- ✅ Company Policy CRUD
+- ✅ Holiday list
+- ✅ Admin: Employee management (add/edit/delete/assign shift/set salary/reset password/upload avatar)
+- ✅ **GUI Redesign** (Feb 2026): Rebranded Sparkcurve → Sparkcurv, modern split login page, updated CSS design system (rounded-xl cards, improved nav, better badges/tables/buttons), consistent layout across all tabs
+
+## Pending Items (Prioritized)
+
+### P0 - Critical
+- [ ] **CR Auto-Apply logic**: When Admin approves a CR, auto-apply the change to DB (e.g., salary_revision → update basic_salary). Check `approve_cr_admin` endpoint in server.py.
+
+### P1 - High  
+- [ ] **Refactor server.py** into `/app/backend/routes/` modules (auth, employees, attendance, leaves, payroll, change_requests, admin) — User approved this.
+
+### P2 - Medium
+- [ ] **Accessibility improvements** (aria attributes) across dashboards — User approved.
 
 ## Key API Endpoints
-- POST /api/attendance/clock-in (requires lat/lng)
-- POST /api/attendance/clock-out (requires lat/lng)
-- POST /api/attendance/break/start (requires lat/lng)
-- POST /api/attendance/break/end (requires lat/lng)
-- GET /api/admin/notifications
-- GET /api/admin/attendance/heatmap?weeks=4
-- GET /api/admin/attendance/break-alerts?date=YYYY-MM-DD
-- GET/PUT /api/admin/office-settings
-- GET /api/admin/attendance/locations?date=YYYY-MM-DD
-- POST /api/cr/create, GET /api/cr/my-requests
-
-## Database Tables (MySQL)
-users, attendance, breaks, leave_requests, permissions, payslips, leave_deductions, custom_deductions, payroll_runs, policies, wfh_requests, change_requests, office_settings
-
-## Backlog
-- [ ] Refactor server.py into route modules (~2800 lines) - P2
-- [ ] Accessibility improvements (aria attributes) - P2
+- Auth: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+- Attendance: `POST /api/attendance/clock-in`, `POST /api/attendance/clock-out`, `POST /api/attendance/break`
+- Leaves: `GET/POST /api/leaves`, `PUT /api/admin/leaves/{id}`
+- Payroll: `GET /api/admin/payroll/summary`, `POST /api/admin/payroll/generate`
+- Change Requests: `GET/POST /api/change-requests`, `PUT /api/admin/change-requests/{id}/manager-action`, `PUT /api/admin/change-requests/{id}/admin-action`
+- Office: `GET/PUT /api/admin/office-settings`
+- Notifications: `GET /api/admin/notifications`
+- Heatmap: `GET /api/admin/attendance/heatmap`

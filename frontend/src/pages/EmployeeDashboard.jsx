@@ -425,36 +425,44 @@ export default function EmployeeDashboard() {
   const isShortDay = currentWorkingHours < 8 && attendanceStatus.clocked_in;
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB]">
+    <div className="min-h-screen bg-[#F8FAFC]">
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 w-64 h-screen bg-white border-r border-gray-200 flex flex-col">
+      <aside className="fixed left-0 top-0 w-64 h-screen bg-white border-r border-slate-200 flex flex-col" style={{ boxShadow: '4px 0 24px rgba(15,23,42,0.04)' }}>
         {/* Logo */}
-        <div className="p-6 border-b border-gray-200">
+        <div className="px-5 py-5 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <img 
-              src="/sparkcurve-logo.png" 
-              alt="SparkCurv Technologies"
-              className="h-12 w-auto object-contain"
-              style={{ mixBlendMode: 'multiply' }}
-            />
-            <span className="text-xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
+            <div
+              className="flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{
+                width: 36,
+                height: 36,
+                background: 'linear-gradient(135deg, #002FA7 0%, #3B5BDB 100%)',
+                boxShadow: '0 4px 10px rgba(0,47,167,0.25)'
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                <path d="M3 10.5C3 6.91 5.91 4 9.5 4s6.5 2.91 6.5 6.5" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+                <circle cx="9.5" cy="13.5" r="2.5" fill="white"/>
+              </svg>
+            </div>
+            <span className="text-xl font-bold text-slate-900 font-['Outfit']">Sparkcurv</span>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <button
             onClick={() => setActiveTab("dashboard")}
             className={activeTab === "dashboard" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <House className="h-5 w-5" weight="duotone" />
+            <House style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Dashboard</span>
           </button>
           <button
             onClick={() => setActiveTab("payslips")}
             className={activeTab === "payslips" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <Receipt className="h-5 w-5" weight="duotone" />
+            <Receipt style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Payslips</span>
           </button>
           <button
@@ -462,7 +470,7 @@ export default function EmployeeDashboard() {
             onClick={() => setActiveTab("salary")}
             className={activeTab === "salary" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <CurrencyDollar className="h-5 w-5" weight="duotone" />
+            <CurrencyDollar style={{ width: 18, height: 18 }} weight="duotone" />
             <span>My Salary</span>
           </button>
           <button
@@ -470,14 +478,14 @@ export default function EmployeeDashboard() {
             onClick={() => setActiveTab("change-requests")}
             className={activeTab === "change-requests" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <GitPullRequest className="h-5 w-5" weight="duotone" />
+            <GitPullRequest style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Change Requests</span>
           </button>
           <button
             onClick={() => setActiveTab("summary")}
             className={activeTab === "summary" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <ChartBar className="h-5 w-5" weight="duotone" />
+            <ChartBar style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Work Summary</span>
           </button>
           <button
@@ -485,7 +493,7 @@ export default function EmployeeDashboard() {
             onClick={() => setActiveTab("wfh")}
             className={activeTab === "wfh" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <Laptop className="h-5 w-5" weight="duotone" />
+            <Laptop style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Work From Home</span>
           </button>
           <button
@@ -493,7 +501,7 @@ export default function EmployeeDashboard() {
             onClick={() => setActiveTab("holidays")}
             className={activeTab === "holidays" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <CalendarStar className="h-5 w-5" weight="duotone" />
+            <CalendarStar style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Holidays</span>
           </button>
           <button
@@ -501,25 +509,25 @@ export default function EmployeeDashboard() {
             onClick={() => setActiveTab("policy")}
             className={activeTab === "policy" ? "nav-item-active w-full" : "nav-item w-full"}
           >
-            <Scroll className="h-5 w-5" weight="duotone" />
+            <Scroll style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Company Policy</span>
           </button>
         </nav>
 
         {/* User Info */}
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 mb-4">
+        <div className="p-4 border-t border-slate-100">
+          <div className="flex items-center gap-3 mb-3 px-1">
             <Avatar url={user?.avatar_url} name={user?.name} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-              <p className="text-xs text-gray-500 truncate">{user?.department}</p>
+              <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
+              <p className="text-xs text-slate-400 truncate">{user?.department}</p>
             </div>
           </div>
           <Button
             data-testid="logout-btn"
             onClick={logout}
             variant="outline"
-            className="w-full justify-start gap-2 text-gray-600 hover:text-gray-900 border-gray-200"
+            className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-medium h-9"
           >
             <SignOut className="h-4 w-4" />
             Sign Out
@@ -533,21 +541,23 @@ export default function EmployeeDashboard() {
           <>
             {/* Header */}
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">
                 Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 18 ? 'Afternoon' : 'Evening'}, {user?.name?.split(' ')[0]}
               </h1>
-              <p className="text-gray-500 mt-1">{format(new Date(), "EEEE, MMMM d, yyyy")}</p>
+              <p className="text-slate-500 mt-1 text-sm">{format(new Date(), "EEEE, MMMM d, yyyy")}</p>
             </div>
 
             {/* Working Hours Alert */}
             {workingSummary && workingSummary.short_days_count > 0 && (
-              <div className="mb-6 p-4 bg-[#FFF9E6] border border-[#FFC107] rounded-sm flex items-center gap-3">
-                <Warning className="h-5 w-5 text-[#D4A000]" weight="duotone" />
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
+                <div className="flex items-center justify-center w-8 h-8 bg-amber-100 rounded-lg flex-shrink-0">
+                  <Warning className="h-4 w-4 text-amber-600" weight="duotone" />
+                </div>
                 <div>
-                  <p className="font-medium text-gray-900">
+                  <p className="font-semibold text-slate-900 text-sm">
                     You have {workingSummary.short_days_count} short working day(s) this month
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-slate-600">
                     {workingSummary.short_days_count >= 3 
                       ? `${Math.floor(workingSummary.short_days_count / 3) * 0.5} half-day(s) have been deducted from your casual leave.`
                       : `${3 - (workingSummary.short_days_count % 3)} more short day(s) will result in 0.5 day leave deduction.`
@@ -560,14 +570,16 @@ export default function EmployeeDashboard() {
             {/* Grid Layout */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Clock Widget - Large */}
-              <div className="lg:col-span-5 bg-white border border-gray-200 rounded-sm p-6">
+              <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                    <h2 className="text-lg font-bold text-gray-900 font-['Outfit']">Time Tracker</h2>
+                    <div className="flex items-center justify-center w-8 h-8 bg-blue-50 rounded-lg">
+                      <Clock className="h-4 w-4 text-[#002FA7]" weight="duotone" />
+                    </div>
+                    <h2 className="text-base font-bold text-slate-900 font-['Outfit']">Time Tracker</h2>
                   </div>
                   {myShift && (
-                    <span className="text-xs px-2 py-1 bg-[#E5ECFF] text-[#002FA7] rounded-full font-medium">
+                    <span className="text-xs px-2.5 py-1 bg-blue-50 text-[#002FA7] rounded-full font-semibold border border-blue-100">
                       {myShift.name} ({myShift.start_time} - {myShift.end_time})
                     </span>
                   )}
@@ -665,25 +677,25 @@ export default function EmployeeDashboard() {
 
                 {/* Today's Summary */}
                 {attendanceStatus.attendance && (
-                  <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="mt-6 pt-5 border-t border-slate-100">
                     <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-500">Clock In</p>
-                        <p className="font-medium text-gray-900">
+                      <div className="bg-slate-50 rounded-xl p-3">
+                        <p className="text-slate-400 text-xs font-medium mb-1">Clock In</p>
+                        <p className="font-bold text-slate-900">
                           {format(new Date(attendanceStatus.attendance.clock_in), "h:mm a")}
                         </p>
                       </div>
                       {attendanceStatus.attendance.clock_out && (
-                        <div>
-                          <p className="text-gray-500">Clock Out</p>
-                          <p className="font-medium text-gray-900">
+                        <div className="bg-slate-50 rounded-xl p-3">
+                          <p className="text-slate-400 text-xs font-medium mb-1">Clock Out</p>
+                          <p className="font-bold text-slate-900">
                             {format(new Date(attendanceStatus.attendance.clock_out), "h:mm a")}
                           </p>
                         </div>
                       )}
-                      <div>
-                        <p className="text-gray-500">Break Time</p>
-                        <p className={`font-medium ${(attendanceStatus.attendance.total_break_minutes || 0) >= 40 ? 'text-[#FF2E00]' : 'text-gray-900'}`}>
+                      <div className="bg-slate-50 rounded-xl p-3">
+                        <p className="text-slate-400 text-xs font-medium mb-1">Break Time</p>
+                        <p className={`font-bold ${(attendanceStatus.attendance.total_break_minutes || 0) >= 40 ? 'text-red-500' : 'text-slate-900'}`}>
                           {attendanceStatus.attendance.total_break_minutes || 0} / 40 min
                         </p>
                       </div>
@@ -696,41 +708,49 @@ export default function EmployeeDashboard() {
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="metric-card">
                   <div className="flex items-center gap-2 mb-3">
-                    <TreePalm className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Casual Leave</span>
+                    <div className="flex items-center justify-center w-8 h-8 bg-blue-50 rounded-lg">
+                      <TreePalm className="h-4 w-4 text-[#002FA7]" weight="duotone" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Casual Leave</span>
                   </div>
-                  <p className="text-3xl font-bold text-gray-900">{leaveBalance.casual}</p>
-                  <p className="text-sm text-gray-500">days remaining</p>
+                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.casual}</p>
+                  <p className="text-xs text-slate-400 mt-1">days remaining</p>
                 </div>
 
                 <div className="metric-card">
                   <div className="flex items-center gap-2 mb-3">
-                    <Heartbeat className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Sick Leave</span>
+                    <div className="flex items-center justify-center w-8 h-8 bg-blue-50 rounded-lg">
+                      <Heartbeat className="h-4 w-4 text-[#002FA7]" weight="duotone" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sick Leave</span>
                   </div>
-                  <p className="text-3xl font-bold text-gray-900">{leaveBalance.sick}</p>
-                  <p className="text-sm text-gray-500">days remaining</p>
+                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.sick}</p>
+                  <p className="text-xs text-slate-400 mt-1">days remaining</p>
                 </div>
 
                 {/* Permission Hours Card */}
-                <div className="metric-card" style={{ borderLeftColor: '#FFC107' }}>
+                <div className="metric-card" style={{ borderLeftColor: '#D97706' }}>
                   <div className="flex items-center gap-2 mb-3">
-                    <Hourglass className="h-5 w-5 text-[#FFC107]" weight="duotone" />
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Permission Hours</span>
+                    <div className="flex items-center justify-center w-8 h-8 bg-amber-50 rounded-lg">
+                      <Hourglass className="h-4 w-4 text-amber-600" weight="duotone" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Permission Hours</span>
                   </div>
-                  <p className="text-3xl font-bold text-gray-900">{(permissionBalance.remaining_minutes / 60).toFixed(1)}h</p>
-                  <p className="text-sm text-gray-500">of 2 hours remaining</p>
-                  <p className="text-xs text-gray-400 mt-1">Max 1 hour per use</p>
+                  <p className="text-3xl font-bold text-slate-900">{(permissionBalance.remaining_minutes / 60).toFixed(1)}h</p>
+                  <p className="text-xs text-slate-400 mt-1">of 2 hours remaining</p>
+                  <p className="text-xs text-slate-300 mt-0.5">Max 1 hour per use</p>
                 </div>
 
                 {/* Loss of Pay Card */}
-                <div className="metric-card" style={{ borderLeftColor: '#EF4444' }}>
+                <div className="metric-card" style={{ borderLeftColor: '#DC2626' }}>
                   <div className="flex items-center gap-2 mb-3">
-                    <CurrencyCircleDollar className="h-5 w-5 text-red-500" weight="duotone" />
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loss of Pay</span>
+                    <div className="flex items-center justify-center w-8 h-8 bg-red-50 rounded-lg">
+                      <CurrencyCircleDollar className="h-4 w-4 text-red-500" weight="duotone" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Loss of Pay</span>
                   </div>
-                  <p className="text-3xl font-bold text-gray-900">{leaveBalance.loss_of_pay || 0}</p>
-                  <p className="text-sm text-gray-500">days taken</p>
+                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.loss_of_pay || 0}</p>
+                  <p className="text-xs text-slate-400 mt-1">days taken</p>
                 </div>
 
                 {/* Request Buttons */}
@@ -739,9 +759,9 @@ export default function EmployeeDashboard() {
                     <DialogTrigger asChild>
                       <Button 
                         data-testid="request-leave-btn"
-                        className="w-full h-12 bg-[#002FA7] text-white hover:bg-[#001F70] rounded-sm"
+                        className="w-full h-12 bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl font-semibold shadow-sm"
                       >
-                        <CalendarBlank className="h-5 w-5 mr-2" weight="duotone" />
+                        <CalendarBlank className="h-4 w-4 mr-2" weight="duotone" />
                         Request Leave
                       </Button>
                     </DialogTrigger>
@@ -866,9 +886,9 @@ export default function EmployeeDashboard() {
                       <Button 
                         data-testid="request-permission-btn"
                         variant="outline"
-                        className="w-full h-12 border-[#FFC107] text-gray-900 hover:bg-[#FFF9E6] rounded-sm"
+                        className="w-full h-12 border-amber-300 text-slate-900 hover:bg-amber-50 rounded-xl font-semibold"
                       >
-                        <Hourglass className="h-5 w-5 mr-2 text-[#FFC107]" weight="duotone" />
+                        <Hourglass className="h-4 w-4 mr-2 text-amber-600" weight="duotone" />
                         Request Permission
                       </Button>
                     </DialogTrigger>
@@ -934,35 +954,37 @@ export default function EmployeeDashboard() {
               </div>
 
               {/* Leave Requests */}
-              <div className="lg:col-span-6 bg-white border border-gray-200 rounded-sm">
-                <div className="p-4 border-b border-gray-200 flex items-center gap-2">
-                  <CalendarCheck className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                  <h2 className="text-lg font-bold text-gray-900 font-['Outfit']">Leave Requests</h2>
+              <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                  <div className="flex items-center justify-center w-7 h-7 bg-blue-50 rounded-lg">
+                    <CalendarCheck className="h-4 w-4 text-[#002FA7]" weight="duotone" />
+                  </div>
+                  <h2 className="text-sm font-bold text-slate-900 font-['Outfit']">Leave Requests</h2>
                 </div>
-                <div className="divide-y divide-gray-100 max-h-[300px] overflow-y-auto">
+                <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
                   {leaveRequests.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
+                    <div className="p-8 text-center text-slate-400 text-sm">
                       No leave requests yet
                     </div>
                   ) : (
                     leaveRequests.slice(0, 5).map((request) => (
-                      <div key={request.id} className="p-4 hover:bg-gray-50 transition-colors">
-                        <div className="flex items-start justify-between">
+                      <div key={request.id} className="p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="font-medium text-gray-900 capitalize">
+                            <p className="font-semibold text-slate-900 text-sm capitalize">
                               {request.leave_type} Leave
-                              {request.is_half_day && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Half Day</span>}
+                              {request.is_half_day && <span className="ml-2 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">Half Day</span>}
                             </p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-xs text-slate-500 mt-0.5">
                               {request.is_half_day
                                 ? format(new Date(request.start_date), "MMM d, yyyy")
                                 : `${format(new Date(request.start_date), "MMM d")} - ${format(new Date(request.end_date), "MMM d, yyyy")}`
                               }
                               {" "}({request.days} {request.days === 1 ? "day" : "days"})
                             </p>
-                            <p className="text-sm text-gray-500 mt-1">{request.reason}</p>
+                            <p className="text-xs text-slate-400 mt-1">{request.reason}</p>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             {getStatusBadge(request.status)}
                             {request.status === "pending" && (
                               <Button
@@ -970,7 +992,7 @@ export default function EmployeeDashboard() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleCancelLeave(request.id)}
-                                className="text-red-500 hover:text-red-700 text-xs"
+                                className="text-red-500 hover:text-red-700 text-xs h-7 px-2"
                               >
                                 Cancel
                               </Button>
@@ -984,26 +1006,28 @@ export default function EmployeeDashboard() {
               </div>
 
               {/* Permission Requests */}
-              <div className="lg:col-span-6 bg-white border border-gray-200 rounded-sm">
-                <div className="p-4 border-b border-gray-200 flex items-center gap-2">
-                  <Timer className="h-5 w-5 text-[#FFC107]" weight="duotone" />
-                  <h2 className="text-lg font-bold text-gray-900 font-['Outfit']">Permission Requests</h2>
+              <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                  <div className="flex items-center justify-center w-7 h-7 bg-amber-50 rounded-lg">
+                    <Timer className="h-4 w-4 text-amber-600" weight="duotone" />
+                  </div>
+                  <h2 className="text-sm font-bold text-slate-900 font-['Outfit']">Permission Requests</h2>
                 </div>
-                <div className="divide-y divide-gray-100 max-h-[300px] overflow-y-auto">
+                <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
                   {permissionRequests.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
+                    <div className="p-8 text-center text-slate-400 text-sm">
                       No permission requests yet
                     </div>
                   ) : (
                     permissionRequests.slice(0, 5).map((perm) => (
-                      <div key={perm.id} className="p-4 hover:bg-gray-50 transition-colors">
-                        <div className="flex items-start justify-between">
+                      <div key={perm.id} className="p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="font-medium text-gray-900">{perm.duration_minutes} minutes</p>
-                            <p className="text-sm text-gray-500">{format(new Date(perm.date), "MMM d, yyyy")}</p>
-                            <p className="text-sm text-gray-500 mt-1">{perm.reason}</p>
+                            <p className="font-semibold text-slate-900 text-sm">{perm.duration_minutes} minutes</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{format(new Date(perm.date), "MMM d, yyyy")}</p>
+                            <p className="text-xs text-slate-400 mt-1">{perm.reason}</p>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             {getStatusBadge(perm.status)}
                             {perm.status === "pending" && (
                               <Button
@@ -1011,7 +1035,7 @@ export default function EmployeeDashboard() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleCancelPermission(perm.id)}
-                                className="text-red-500 hover:text-red-700 text-xs"
+                                className="text-red-500 hover:text-red-700 text-xs h-7 px-2"
                               >
                                 Cancel
                               </Button>
@@ -1025,10 +1049,12 @@ export default function EmployeeDashboard() {
               </div>
 
               {/* Attendance History */}
-              <div className="lg:col-span-12 bg-white border border-gray-200 rounded-sm">
-                <div className="p-4 border-b border-gray-200 flex items-center gap-2">
-                  <ClockCounterClockwise className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                  <h2 className="text-lg font-bold text-gray-900 font-['Outfit']">Attendance History</h2>
+              <div className="lg:col-span-12 bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                  <div className="flex items-center justify-center w-7 h-7 bg-blue-50 rounded-lg">
+                    <ClockCounterClockwise className="h-4 w-4 text-[#002FA7]" weight="duotone" />
+                  </div>
+                  <h2 className="text-sm font-bold text-slate-900 font-['Outfit']">Attendance History</h2>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -1045,17 +1071,17 @@ export default function EmployeeDashboard() {
                     <tbody>
                       {attendanceHistory.length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="text-center py-8 text-gray-500">No attendance records yet</td>
+                          <td colSpan="6" className="text-center py-8 text-slate-400 text-sm">No attendance records yet</td>
                         </tr>
                       ) : (
                         attendanceHistory.slice(0, 10).map((record, idx) => (
                           <tr key={idx} className="table-row">
-                            <td className="table-cell font-medium">{format(new Date(record.date), "MMM d, yyyy")}</td>
+                            <td className="table-cell font-semibold">{format(new Date(record.date), "MMM d, yyyy")}</td>
                             <td className="table-cell">{format(new Date(record.clock_in), "h:mm a")}</td>
                             <td className="table-cell">{record.clock_out ? format(new Date(record.clock_out), "h:mm a") : "—"}</td>
                             <td className="table-cell">{record.total_break_minutes || 0} min</td>
                             <td className="table-cell">
-                              <span className={record.working_hours && record.working_hours < 8 ? "text-[#FF2E00]" : ""}>
+                              <span className={record.working_hours && record.working_hours < 8 ? "text-red-500 font-semibold" : "font-medium"}>
                                 {record.working_hours ? formatHours(record.working_hours) : "—"}
                               </span>
                             </td>

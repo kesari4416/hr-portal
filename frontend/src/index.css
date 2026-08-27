@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&family=Manrope:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,14 +6,20 @@
 
 :root {
   --brand-primary: #002FA7;
-  --brand-primary-hover: #001F70;
-  --brand-primary-light: #E5ECFF;
-  --status-success: #00C853;
-  --status-success-bg: #E6FFEE;
-  --status-warning: #FFC107;
-  --status-warning-bg: #FFF9E6;
-  --status-error: #FF2E00;
-  --status-error-bg: #FFEBE6;
+  --brand-primary-hover: #002482;
+  --brand-primary-light: #EEF2FF;
+  --brand-accent: #3B5BDB;
+  --status-success: #16A34A;
+  --status-success-bg: #F0FDF4;
+  --status-warning: #D97706;
+  --status-warning-bg: #FFFBEB;
+  --status-error: #DC2626;
+  --status-error-bg: #FEF2F2;
+  --surface: #FFFFFF;
+  --bg-page: #F8FAFC;
+  --text-primary: #0F172A;
+  --text-muted: #64748B;
+  --border-color: #E2E8F0;
 }
 
 body {
@@ -21,7 +27,8 @@ body {
   font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #F9FAFB;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -34,31 +41,26 @@ code {
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
-    --foreground: 220 15% 6%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 6%;
     --card: 0 0% 100%;
-    --card-foreground: 220 15% 6%;
+    --card-foreground: 222 47% 6%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 15% 6%;
+    --popover-foreground: 222 47% 6%;
     --primary: 226 100% 33%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 220 15% 6%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 220 15% 6%;
-    --destructive: 14 100% 50%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 6%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 6%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
     --ring: 226 100% 33%;
-    --chart-1: 226 100% 33%;
-    --chart-2: 145 100% 39%;
-    --chart-3: 45 100% 51%;
-    --chart-4: 14 100% 50%;
-    --chart-5: 220 9% 46%;
-    --radius: 0.125rem;
+    --radius: 0.5rem;
   }
 }
 
@@ -71,69 +73,286 @@ code {
   }
 }
 
-/* Custom button styles */
+/* ===== BUTTON STYLES ===== */
 .btn-clock-in {
-  @apply bg-[#002FA7] text-white hover:bg-[#001F70] rounded-sm px-8 py-4 text-lg font-bold w-full transition-all;
-  box-shadow: 0 4px 0 0 #00154D;
+  @apply bg-[#002FA7] text-white font-bold w-full transition-all duration-200;
+  padding: 14px 24px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 4px 14px rgba(0, 47, 167, 0.35);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
-
+.btn-clock-in:hover {
+  background-color: #002482;
+  box-shadow: 0 6px 20px rgba(0, 47, 167, 0.45);
+  transform: translateY(-1px);
+}
 .btn-clock-in:active {
-  transform: translateY(2px);
-  box-shadow: none;
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(0, 47, 167, 0.25);
 }
 
 .btn-clock-out {
-  @apply bg-[#FF2E00] text-white hover:bg-[#CC2500] rounded-sm px-8 py-4 text-lg font-bold w-full transition-all;
-  box-shadow: 0 4px 0 0 #991C00;
+  @apply text-white font-bold w-full transition-all duration-200;
+  padding: 14px 24px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: none;
+  background-color: #DC2626;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.30);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
-
+.btn-clock-out:hover {
+  background-color: #B91C1C;
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.40);
+  transform: translateY(-1px);
+}
 .btn-clock-out:active {
-  transform: translateY(2px);
-  box-shadow: none;
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.20);
 }
 
 .btn-break {
-  @apply bg-[#FFC107] text-black hover:bg-[#E6AE06] rounded-sm px-6 py-3 font-bold w-full transition-all;
+  @apply font-bold w-full transition-all duration-200;
+  padding: 12px 20px;
+  font-size: 14px;
+  border-radius: 12px;
+  border: 1.5px solid #F59E0B;
+  background-color: #FEF3C7;
+  color: #92400E;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-break:hover {
+  background-color: #FDE68A;
+  border-color: #D97706;
 }
 
-/* Badge styles */
+/* ===== BADGE STYLES ===== */
 .badge-approved {
-  @apply bg-[#E6FFEE] text-[#00C853] px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: #F0FDF4;
+  color: #16A34A;
+  border: 1px solid #BBF7D0;
 }
 
 .badge-pending {
-  @apply bg-[#FFF9E6] text-[#D4A000] px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: #FFFBEB;
+  color: #D97706;
+  border: 1px solid #FDE68A;
 }
 
 .badge-rejected {
-  @apply bg-[#FFEBE6] text-[#FF2E00] px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
 }
 
-/* Navigation styles */
+/* ===== NAVIGATION STYLES ===== */
 .nav-item {
-  @apply flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-sm font-medium transition-colors;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #64748B;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  width: 100%;
+  border: none;
+  background: transparent;
+}
+.nav-item:hover {
+  background-color: #F8FAFC;
+  color: #0F172A;
 }
 
 .nav-item-active {
-  @apply flex items-center gap-3 px-4 py-3 bg-[#E5ECFF] text-[#002FA7] font-bold border-r-4 border-[#002FA7] rounded-sm;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #002FA7;
+  background-color: #EEF2FF;
+  border: none;
+  border-left: 3px solid #002FA7;
+  padding-left: 11px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
 }
 
-/* Metric card */
+/* ===== METRIC CARD ===== */
 .metric-card {
-  @apply bg-white border-l-4 border-l-[#002FA7] border-y border-r border-gray-200 p-5 rounded-sm;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+.metric-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background-color: #002FA7;
+  border-radius: 14px 0 0 14px;
+}
+.metric-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 47, 167, 0.08);
+  transform: translateY(-2px);
 }
 
-/* Table styles */
+/* ===== TABLE STYLES ===== */
 .table-header {
-  @apply bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider text-left px-4 py-3;
+  background-color: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+  padding: 12px 20px;
 }
 
 .table-row {
-  @apply border-b border-gray-100 hover:bg-gray-50 transition-colors;
+  border-bottom: 1px solid #F1F5F9;
+  transition: background-color 0.12s ease;
+}
+.table-row:hover {
+  background-color: #F8FAFC;
 }
 
 .table-cell {
-  @apply px-4 py-3 text-sm text-gray-900;
+  padding: 14px 20px;
+  font-size: 13.5px;
+  color: #334155;
+  vertical-align: middle;
+}
+
+/* ===== DASHBOARD SECTION CARD ===== */
+.section-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.section-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid #F1F5F9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* ===== FOCUS STATES ===== */
+*:focus-visible {
+  outline: 2px solid #002FA7;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ===== SELECTION COLOR ===== */
+::selection {
+  background: #EEF2FF;
+  color: #002FA7;
+}
+
+/* ===== SHADCN OVERRIDES ===== */
+.leaflet-container {
+  border-radius: 12px;
 }
 
 @layer base {

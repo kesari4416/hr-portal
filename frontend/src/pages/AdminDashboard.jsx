@@ -669,21 +669,29 @@ export default function AdminDashboard() {
   const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB]">
+    <div className="min-h-screen bg-[#F8FAFC]">
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 w-64 h-screen bg-white border-r border-gray-200 flex flex-col">
+      <aside className="fixed left-0 top-0 w-64 h-screen bg-white border-r border-slate-200 flex flex-col" style={{ boxShadow: '4px 0 24px rgba(15,23,42,0.04)' }}>
         {/* Logo */}
-        <div className="p-6 border-b border-gray-200">
+        <div className="px-5 py-5 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <img 
-              src="/sparkcurve-logo.png" 
-              alt="SparkCurv Technologies"
-              className="h-12 w-auto object-contain"
-              style={{ mixBlendMode: 'multiply' }}
-            />
-            <span className="text-xl font-bold text-gray-900 font-['Outfit']">Sparkcurve</span>
+            <div
+              className="flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{
+                width: 36,
+                height: 36,
+                background: 'linear-gradient(135deg, #002FA7 0%, #3B5BDB 100%)',
+                boxShadow: '0 4px 10px rgba(0,47,167,0.25)'
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                <path d="M3 10.5C3 6.91 5.91 4 9.5 4s6.5 2.91 6.5 6.5" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+                <circle cx="9.5" cy="13.5" r="2.5" fill="white"/>
+              </svg>
+            </div>
+            <span className="text-xl font-bold text-slate-900 font-['Outfit']">Sparkcurv</span>
           </div>
-          <span className="text-xs font-bold text-[#002FA7] uppercase tracking-wider mt-2 block">{isAdmin ? "Admin Panel" : "Manager Panel"}</span>
+          <span className="text-[10px] font-bold text-[#002FA7] uppercase tracking-widest mt-1.5 block">{isAdmin ? "Admin Panel" : "Manager Panel"}</span>
         </div>
 
         {/* Notification Bell */}
@@ -691,18 +699,18 @@ export default function AdminDashboard() {
           <button
             data-testid="notification-bell"
             onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}
-            className="relative flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+            className="relative flex items-center gap-2 w-full px-3 py-2 text-sm rounded-xl hover:bg-slate-50 transition-colors"
           >
-            <Bell className="h-5 w-5 text-gray-600" weight={notifications.total > 0 ? "fill" : "duotone"} />
-            <span className="text-gray-700 font-medium">Notifications</span>
+            <Bell className="h-5 w-5 text-slate-500" weight={notifications.total > 0 ? "fill" : "duotone"} />
+            <span className="text-slate-700 font-semibold text-[13px]">Notifications</span>
             {notifications.total > 0 && (
-              <span className="ml-auto flex items-center justify-center h-5 min-w-[20px] px-1 bg-[#FF2E00] text-white text-[10px] font-bold rounded-full animate-pulse">
+              <span className="ml-auto flex items-center justify-center h-5 min-w-[20px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse">
                 {notifications.total}
               </span>
             )}
           </button>
           {notifDropdownOpen && notifications.items.length > 0 && (
-            <div className="mx-2 mt-1 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+            <div className="mx-2 mt-1 mb-2 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
               {notifications.items.map((item, i) => (
                 <button
                   key={i}
@@ -713,15 +721,15 @@ export default function AdminDashboard() {
                     else if (item.type === "cr") setActiveTab("change-requests");
                     else if (item.type === "permission") setActiveTab("permissions");
                   }}
-                  className="w-full text-left px-3 py-2.5 text-xs hover:bg-blue-50 border-b last:border-b-0 border-gray-100 flex items-center gap-2"
+                  className="w-full text-left px-3 py-2.5 text-xs hover:bg-blue-50 border-b last:border-b-0 border-slate-100 flex items-center gap-2"
                 >
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    item.type === "leave" ? "bg-[#FFC107]" :
+                    item.type === "leave" ? "bg-amber-400" :
                     item.type === "cr" ? "bg-[#002FA7]" :
                     item.type === "wfh" ? "bg-purple-500" :
                     "bg-orange-500"
                   }`} />
-                  <span className="text-gray-700">{item.label}</span>
+                  <span className="text-slate-700 font-medium">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -729,7 +737,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <button
               key={item.id}
@@ -737,26 +745,26 @@ export default function AdminDashboard() {
               onClick={() => setActiveTab(item.id)}
               className={activeTab === item.id ? "nav-item-active w-full" : "nav-item w-full"}
             >
-              <item.icon className="h-5 w-5" weight="duotone" />
+              <item.icon className="h-4.5 w-4.5 flex-shrink-0" weight="duotone" style={{ width: 18, height: 18 }} />
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
 
         {/* User Info */}
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 mb-4">
-            <Avatar url={user?.avatar_url} name={user?.name} size="h-10 w-10" textSize="text-sm" />
+        <div className="p-4 border-t border-slate-100">
+          <div className="flex items-center gap-3 mb-3 px-1">
+            <Avatar url={user?.avatar_url} name={user?.name} size="h-9 w-9" textSize="text-xs" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-              <p className="text-xs text-gray-500 truncate">Administrator</p>
+              <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
+              <p className="text-xs text-slate-400 truncate">Administrator</p>
             </div>
           </div>
           <Button
             data-testid="admin-logout-btn"
             onClick={logout}
             variant="outline"
-            className="w-full justify-start gap-2 text-gray-600 hover:text-gray-900 border-gray-200"
+            className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-medium h-9"
           >
             <SignOut className="h-4 w-4" />
             Sign Out
@@ -770,53 +778,61 @@ export default function AdminDashboard() {
         {activeTab === "overview" && analytics && (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Dashboard Overview</h1>
-              <p className="text-gray-500 mt-1">{format(new Date(), "EEEE, MMMM d, yyyy")}</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Dashboard Overview</h1>
+              <p className="text-slate-500 mt-1 text-sm">{format(new Date(), "EEEE, MMMM d, yyyy")}</p>
             </div>
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
               <div className="metric-card">
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Employees</span>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-blue-50">
+                    <Users className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Employees</span>
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{analytics.total_employees}</p>
+                <p className="text-4xl font-bold text-slate-900">{analytics.total_employees}</p>
               </div>
 
-              <div className="metric-card" style={{ borderLeftColor: '#00C853' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Check className="h-5 w-5 text-[#00C853]" weight="duotone" />
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Present Today</span>
+              <div className="metric-card" style={{ borderLeftColor: '#16A34A' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-green-50">
+                    <Check className="h-5 w-5 text-green-600" weight="duotone" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Present Today</span>
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{analytics.present_today}</p>
+                <p className="text-4xl font-bold text-slate-900">{analytics.present_today}</p>
               </div>
 
-              <div className="metric-card" style={{ borderLeftColor: '#FF2E00' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <X className="h-5 w-5 text-[#FF2E00]" weight="duotone" />
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Absent Today</span>
+              <div className="metric-card" style={{ borderLeftColor: '#DC2626' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-red-50">
+                    <X className="h-5 w-5 text-red-500" weight="duotone" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Absent Today</span>
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{analytics.absent_today}</p>
+                <p className="text-4xl font-bold text-slate-900">{analytics.absent_today}</p>
               </div>
 
-              <div className="metric-card" style={{ borderLeftColor: '#FFC107' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <CalendarCheck className="h-5 w-5 text-[#FFC107]" weight="duotone" />
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pending Leaves</span>
+              <div className="metric-card" style={{ borderLeftColor: '#D97706' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-amber-50">
+                    <CalendarCheck className="h-5 w-5 text-amber-600" weight="duotone" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pending Leaves</span>
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{analytics.pending_leaves}</p>
+                <p className="text-4xl font-bold text-slate-900">{analytics.pending_leaves}</p>
               </div>
             </div>
 
             {/* Department Breakdown */}
-            <div className="bg-white border border-gray-200 rounded-sm p-6">
-              <h2 className="text-lg font-bold text-gray-900 font-['Outfit'] mb-4">Department Breakdown</h2>
+            <div className="bg-white border border-slate-200 rounded-xl p-6" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+              <h2 className="text-base font-bold text-slate-900 font-['Outfit'] mb-4">Department Breakdown</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {analytics.department_breakdown?.map((dept, idx) => (
-                  <div key={idx} className="p-4 bg-gray-50 rounded-sm">
-                    <p className="text-sm text-gray-500">{dept.department || "General"}</p>
-                    <p className="text-2xl font-bold text-gray-900">{dept.count}</p>
+                  <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-xs text-slate-500 font-medium mb-1">{dept.department || "General"}</p>
+                    <p className="text-2xl font-bold text-slate-900">{dept.count}</p>
                   </div>
                 ))}
               </div>
@@ -824,9 +840,9 @@ export default function AdminDashboard() {
 
             {/* Attendance Heatmap */}
             {heatmapData.employees.length > 0 && (
-              <div className="bg-white border border-gray-200 rounded-lg p-6 mt-6" data-testid="attendance-heatmap">
-                <h2 className="text-lg font-bold text-gray-900 font-['Outfit'] mb-1">Attendance Heatmap</h2>
-                <p className="text-xs text-gray-500 mb-4">Last 4 weeks — on-time, late arrivals, and absences at a glance</p>
+              <div className="bg-white border border-slate-200 rounded-xl p-6 mt-6" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }} data-testid="attendance-heatmap">
+                <h2 className="text-base font-bold text-slate-900 font-['Outfit'] mb-1">Attendance Heatmap</h2>
+                <p className="text-xs text-slate-400 mb-4">Last 4 weeks — on-time, late arrivals, and absences at a glance</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
@@ -884,8 +900,8 @@ export default function AdminDashboard() {
           <>
             <div className="mb-8 flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Employees</h1>
-                <p className="text-gray-500 mt-1">Manage your team members</p>
+                <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Employees</h1>
+                <p className="text-slate-500 mt-1 text-sm">Manage your team members</p>
               </div>
               <Dialog open={addEmployeeOpen} onOpenChange={setAddEmployeeOpen}>
                 <DialogTrigger asChild>
@@ -982,7 +998,7 @@ export default function AdminDashboard() {
               accept="image/jpeg,image/png,image/webp,image/gif"
               onChange={handleAvatarUpload}
             />
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
               <table className="w-full">
                 <thead>
                   <tr>
@@ -1016,37 +1032,37 @@ export default function AdminDashboard() {
                             )}
                           </div>
                           <div>
-                            <p className="font-medium text-gray-900">{emp.name}</p>
-                            <p className="text-xs text-gray-500">{emp.email}</p>
+                            <p className="font-semibold text-slate-900 text-sm">{emp.name}</p>
+                            <p className="text-xs text-slate-400">{emp.email}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="table-cell">{emp.department || "—"}</td>
+                      <td className="table-cell text-slate-600">{emp.department || "—"}</td>
                       <td className="table-cell">
                         {emp.shift && SHIFTS[emp.shift] ? (
-                          <span className="text-xs px-2 py-1 bg-[#E5ECFF] text-[#002FA7] rounded-full font-medium">
+                          <span className="text-xs px-2.5 py-1 bg-blue-50 text-[#002FA7] rounded-full font-semibold border border-blue-100">
                             {SHIFTS[emp.shift].name}
                           </span>
                         ) : (
-                          <span className="text-gray-400 text-xs">Not assigned</span>
+                          <span className="text-slate-300 text-xs">Not assigned</span>
                         )}
                       </td>
                       <td className="table-cell">
                         {emp.basic_salary ? (
-                          <span className="text-[#00C853] font-medium">₹{emp.basic_salary.toLocaleString()}</span>
+                          <span className="text-green-600 font-semibold">₹{emp.basic_salary.toLocaleString()}</span>
                         ) : (
-                          <span className="text-gray-400">Not set</span>
+                          <span className="text-slate-300 text-xs">Not set</span>
                         )}
                       </td>
                       <td className="table-cell">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase ${
-                          emp.role === "admin" ? "bg-[#E5ECFF] text-[#002FA7]" : emp.role === "manager" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
+                          emp.role === "admin" ? "bg-blue-50 text-[#002FA7] border border-blue-100" : emp.role === "manager" ? "bg-orange-50 text-orange-700 border border-orange-100" : "bg-slate-100 text-slate-600"
                         }`}>
                           {emp.role}
                         </span>
                       </td>
                       <td className="table-cell">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           {emp.role !== "admin" && (
                             <>
                               <Button
@@ -1054,7 +1070,7 @@ export default function AdminDashboard() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => openShiftModal(emp)}
-                                className="text-gray-500 hover:text-[#002FA7]"
+                                className="text-slate-400 hover:text-[#002FA7] h-8 w-8 p-0"
                                 title="Assign Shift"
                               >
                                 <ClockClockwise className="h-4 w-4" />
@@ -1064,7 +1080,7 @@ export default function AdminDashboard() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => openSalaryModal(emp)}
-                                className="text-gray-500 hover:text-[#00C853]"
+                                className="text-slate-400 hover:text-green-600 h-8 w-8 p-0"
                                 title="Set Salary"
                               >
                                 <CurrencyDollar className="h-4 w-4" />
@@ -1078,7 +1094,7 @@ export default function AdminDashboard() {
                                   setResetPasswordValue("");
                                   setResetPasswordOpen(true);
                                 }}
-                                className="text-gray-500 hover:text-orange-500"
+                                className="text-slate-400 hover:text-orange-500 h-8 w-8 p-0"
                                 title="Reset Password"
                               >
                                 <Key className="h-4 w-4" />
@@ -1090,7 +1106,7 @@ export default function AdminDashboard() {
                             variant="ghost"
                             size="sm"
                             onClick={() => openEditModal(emp)}
-                            className="text-gray-500 hover:text-[#002FA7]"
+                            className="text-slate-400 hover:text-[#002FA7] h-8 w-8 p-0"
                           >
                             <PencilSimple className="h-4 w-4" />
                           </Button>
@@ -1100,7 +1116,7 @@ export default function AdminDashboard() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleDeleteEmployee(emp.id)}
-                              className="text-gray-500 hover:text-red-500"
+                              className="text-slate-400 hover:text-red-500 h-8 w-8 p-0"
                             >
                               <Trash className="h-4 w-4" />
                             </Button>
@@ -1317,12 +1333,12 @@ export default function AdminDashboard() {
         {activeTab === "payroll" && (
           <>
             <div className="mb-6">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Payroll</h1>
-              <p className="text-gray-500 mt-1">Manage salaries, deductions, and payslips</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Payroll</h1>
+              <p className="text-slate-500 mt-1 text-sm">Manage salaries, deductions, and payslips</p>
             </div>
 
             {/* Sub-tab Navigation */}
-            <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit" data-testid="payroll-subtabs">
+            <div className="flex gap-1 mb-6 bg-slate-100 p-1 rounded-xl w-fit" data-testid="payroll-subtabs">
               {[
                 { id: "dashboard", label: "Dashboard" },
                 { id: "deductions", label: "Deductions" },
@@ -1333,10 +1349,10 @@ export default function AdminDashboard() {
                   key={tab.id}
                   data-testid={`payroll-subtab-${tab.id}`}
                   onClick={() => setPayrollSubTab(tab.id)}
-                  className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                  className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
                     payrollSubTab === tab.id
                       ? "bg-white text-[#002FA7] shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
+                      : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
                   {tab.label}
@@ -1348,37 +1364,37 @@ export default function AdminDashboard() {
             {payrollSubTab === "dashboard" && (
               <>
                 {/* YTD Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-white border border-gray-200 rounded-lg p-5">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">YTD Gross Pay</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="ytd-gross">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-6">
+                  <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">YTD Gross Pay</p>
+                    <p className="text-2xl font-bold text-slate-900 mt-2" data-testid="ytd-gross">
                       ₹{(payrollSummary?.ytd?.total_gross || 0).toLocaleString()}
                     </p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-lg p-5">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">YTD Deductions</p>
-                    <p className="text-2xl font-bold text-[#FF2E00] mt-1" data-testid="ytd-deductions">
+                  <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">YTD Deductions</p>
+                    <p className="text-2xl font-bold text-red-500 mt-2" data-testid="ytd-deductions">
                       ₹{(payrollSummary?.ytd?.total_deductions || 0).toLocaleString()}
                     </p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-lg p-5">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">YTD Net Pay</p>
-                    <p className="text-2xl font-bold text-[#00C853] mt-1" data-testid="ytd-net">
+                  <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">YTD Net Pay</p>
+                    <p className="text-2xl font-bold text-green-600 mt-2" data-testid="ytd-net">
                       ₹{(payrollSummary?.ytd?.total_net || 0).toLocaleString()}
                     </p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-lg p-5">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Payslips</p>
-                    <p className="text-2xl font-bold text-[#002FA7] mt-1" data-testid="ytd-count">
+                  <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Payslips</p>
+                    <p className="text-2xl font-bold text-[#002FA7] mt-2" data-testid="ytd-count">
                       {payrollSummary?.ytd?.total_payslips || 0}
                     </p>
                   </div>
                 </div>
 
                 {/* Monthly Breakdown */}
-                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Monthly Breakdown — {payrollSummary?.year || new Date().getFullYear()}</h2>
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-6" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                  <div className="px-5 py-4 border-b border-slate-100">
+                    <h2 className="text-sm font-bold text-slate-900 font-['Outfit']">Monthly Breakdown — {payrollSummary?.year || new Date().getFullYear()}</h2>
                   </div>
                   {payrollSummary?.monthly?.length > 0 ? (
                     <table className="w-full">
@@ -1394,17 +1410,17 @@ export default function AdminDashboard() {
                       <tbody>
                         {payrollSummary.monthly.map((m) => (
                           <tr key={m.month} className="table-row">
-                            <td className="table-cell font-medium">{m.month_name} {m.year}</td>
+                            <td className="table-cell font-semibold">{m.month_name} {m.year}</td>
                             <td className="table-cell">{m.employee_count}</td>
                             <td className="table-cell">₹{m.total_gross.toLocaleString()}</td>
-                            <td className="table-cell text-[#FF2E00]">-₹{m.total_deductions.toLocaleString()}</td>
-                            <td className="table-cell font-bold text-[#00C853]">₹{m.total_net.toLocaleString()}</td>
+                            <td className="table-cell text-red-500">-₹{m.total_deductions.toLocaleString()}</td>
+                            <td className="table-cell font-bold text-green-600">₹{m.total_net.toLocaleString()}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   ) : (
-                    <div className="text-center py-10 text-gray-400">
+                    <div className="text-center py-10 text-slate-400">
                       <CurrencyDollar className="h-10 w-10 mx-auto mb-2" weight="duotone" />
                       <p className="text-sm">No payroll data for this year yet</p>
                     </div>
@@ -1413,9 +1429,9 @@ export default function AdminDashboard() {
 
                 {/* Department Breakdown */}
                 {payrollSummary?.departments?.length > 0 && (
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
-                    <div className="px-5 py-4 border-b border-gray-100">
-                      <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Department-wise Breakdown</h2>
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-6" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                    <div className="px-5 py-4 border-b border-slate-100">
+                      <h2 className="text-sm font-bold text-slate-900 font-['Outfit']">Department-wise Breakdown</h2>
                     </div>
                     <table className="w-full">
                       <thead>
@@ -1429,10 +1445,10 @@ export default function AdminDashboard() {
                       <tbody>
                         {payrollSummary.departments.map((d, i) => (
                           <tr key={i} className="table-row">
-                            <td className="table-cell font-medium">{d.department}</td>
+                            <td className="table-cell font-semibold">{d.department}</td>
                             <td className="table-cell">{d.employee_count}</td>
                             <td className="table-cell">₹{d.total_gross.toLocaleString()}</td>
-                            <td className="table-cell font-bold text-[#00C853]">₹{d.total_net.toLocaleString()}</td>
+                            <td className="table-cell font-bold text-green-600">₹{d.total_net.toLocaleString()}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1442,9 +1458,9 @@ export default function AdminDashboard() {
 
                 {/* Recent Payroll Runs */}
                 {payrollSummary?.runs?.length > 0 && (
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100">
-                      <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Payroll Run History</h2>
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                    <div className="px-5 py-4 border-b border-slate-100">
+                      <h2 className="text-sm font-bold text-slate-900 font-['Outfit']">Payroll Run History</h2>
                     </div>
                     <table className="w-full">
                       <thead>
@@ -1460,12 +1476,12 @@ export default function AdminDashboard() {
                       <tbody>
                         {payrollSummary.runs.map((r) => (
                           <tr key={r.id} className="table-row">
-                            <td className="table-cell font-medium">{r.month_name} {r.year}</td>
+                            <td className="table-cell font-semibold">{r.month_name} {r.year}</td>
                             <td className="table-cell">{r.total_employees}</td>
                             <td className="table-cell">₹{parseFloat(r.total_gross || 0).toLocaleString()}</td>
-                            <td className="table-cell text-[#FF2E00]">-₹{parseFloat(r.total_deductions || 0).toLocaleString()}</td>
-                            <td className="table-cell font-bold text-[#00C853]">₹{parseFloat(r.total_net || 0).toLocaleString()}</td>
-                            <td className="table-cell text-sm text-gray-500">{r.processed_by}</td>
+                            <td className="table-cell text-red-500">-₹{parseFloat(r.total_deductions || 0).toLocaleString()}</td>
+                            <td className="table-cell font-bold text-green-600">₹{parseFloat(r.total_net || 0).toLocaleString()}</td>
+                            <td className="table-cell text-slate-500">{r.processed_by}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1824,31 +1840,31 @@ export default function AdminDashboard() {
         {activeTab === "change-requests" && (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Change Requests</h1>
-              <p className="text-gray-500 mt-1">Review and approve work/installation requests (2-step approval)</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Change Requests</h1>
+              <p className="text-slate-500 mt-1 text-sm">Review and approve work/installation requests (2-step approval)</p>
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <p className="text-xs font-medium text-gray-500 uppercase">Pending</p>
-                <p className="text-2xl font-bold text-orange-500 mt-1">{changeRequests.filter(c => c.status === "pending").length}</p>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-6">
+              <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pending</p>
+                <p className="text-3xl font-bold text-orange-500 mt-2">{changeRequests.filter(c => c.status === "pending").length}</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <p className="text-xs font-medium text-gray-500 uppercase">Manager Approved</p>
-                <p className="text-2xl font-bold text-blue-500 mt-1">{changeRequests.filter(c => c.status === "manager_approved").length}</p>
+              <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Manager Approved</p>
+                <p className="text-3xl font-bold text-blue-500 mt-2">{changeRequests.filter(c => c.status === "manager_approved").length}</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <p className="text-xs font-medium text-gray-500 uppercase">Approved</p>
-                <p className="text-2xl font-bold text-[#00C853] mt-1">{changeRequests.filter(c => c.status === "approved").length}</p>
+              <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Approved</p>
+                <p className="text-3xl font-bold text-green-600 mt-2">{changeRequests.filter(c => c.status === "approved").length}</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <p className="text-xs font-medium text-gray-500 uppercase">Rejected</p>
-                <p className="text-2xl font-bold text-[#FF2E00] mt-1">{changeRequests.filter(c => c.status === "rejected").length}</p>
+              <div className="bg-white border border-slate-200 rounded-xl p-5" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rejected</p>
+                <p className="text-3xl font-bold text-red-500 mt-2">{changeRequests.filter(c => c.status === "rejected").length}</p>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
               <table className="w-full">
                 <thead>
                   <tr>
@@ -1984,11 +2000,11 @@ export default function AdminDashboard() {
         {activeTab === "leaves" && (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Leave Requests</h1>
-              <p className="text-gray-500 mt-1">Review and manage leave applications</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Leave Requests</h1>
+              <p className="text-slate-500 mt-1 text-sm">Review and manage leave applications</p>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
               <table className="w-full">
                 <thead>
                   <tr>
@@ -2003,21 +2019,21 @@ export default function AdminDashboard() {
                 <tbody>
                   {leaveRequests.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-8 text-gray-500">No leave requests</td>
+                      <td colSpan="6" className="text-center py-8 text-slate-400 text-sm">No leave requests</td>
                     </tr>
                   ) : (
                     leaveRequests.map((req) => (
                       <tr key={req.id} className="table-row">
                         <td className="table-cell">
-                          <p className="font-medium text-gray-900">{req.user_name}</p>
-                          <p className="text-xs text-gray-500">{req.user_email}</p>
+                          <p className="font-semibold text-slate-900 text-sm">{req.user_name}</p>
+                          <p className="text-xs text-slate-400">{req.user_email}</p>
                         </td>
-                        <td className="table-cell capitalize">{req.leave_type}{req.is_half_day ? " (Half Day)" : ""}</td>
+                        <td className="table-cell capitalize text-slate-600">{req.leave_type}{req.is_half_day ? " (Half Day)" : ""}</td>
                         <td className="table-cell">
-                          <p>{req.is_half_day ? format(new Date(req.start_date), "MMM d, yyyy") : `${format(new Date(req.start_date), "MMM d")} - ${format(new Date(req.end_date), "MMM d, yyyy")}`}</p>
-                          <p className="text-xs text-gray-500">{req.days} day(s)</p>
+                          <p className="text-sm">{req.is_half_day ? format(new Date(req.start_date), "MMM d, yyyy") : `${format(new Date(req.start_date), "MMM d")} - ${format(new Date(req.end_date), "MMM d, yyyy")}`}</p>
+                          <p className="text-xs text-slate-400">{req.days} day(s)</p>
                         </td>
-                        <td className="table-cell max-w-xs truncate">{req.reason}</td>
+                        <td className="table-cell max-w-xs truncate text-slate-600">{req.reason}</td>
                         <td className="table-cell">{getStatusBadge(req.status)}</td>
                         <td className="table-cell">
                           {req.status === "pending" && (
@@ -2026,7 +2042,7 @@ export default function AdminDashboard() {
                                 data-testid={`approve-leave-${req.id}`}
                                 size="sm"
                                 onClick={() => handleLeaveAction(req.id, "approve")}
-                                className="bg-[#00C853] hover:bg-[#00A844] text-white h-8 px-3"
+                                className="bg-green-600 hover:bg-green-700 text-white h-8 w-8 p-0 rounded-lg"
                               >
                                 <Check className="h-4 w-4" />
                               </Button>
@@ -2034,14 +2050,14 @@ export default function AdminDashboard() {
                                 data-testid={`reject-leave-${req.id}`}
                                 size="sm"
                                 onClick={() => handleLeaveAction(req.id, "reject")}
-                                className="bg-[#FF2E00] hover:bg-[#CC2500] text-white h-8 px-3"
+                                className="bg-red-500 hover:bg-red-600 text-white h-8 w-8 p-0 rounded-lg"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
                             </div>
                           )}
                           {req.status !== "pending" && req.reviewed_by && (
-                            <p className="text-xs text-gray-500">by {req.reviewed_by}</p>
+                            <p className="text-xs text-slate-400">by {req.reviewed_by}</p>
                           )}
                         </td>
                       </tr>
@@ -2057,49 +2073,49 @@ export default function AdminDashboard() {
         {activeTab === "wfh" && (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Work From Home Requests</h1>
-              <p className="text-gray-500 mt-1">Manage employee WFH requests</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Work From Home Requests</h1>
+              <p className="text-slate-500 mt-1 text-sm">Manage employee WFH requests</p>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
               <table className="w-full">
-                <thead className="bg-gray-50 border-b">
+                <thead>
                   <tr>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Employee</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reason</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reviewed By</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                    <th className="table-header">Employee</th>
+                    <th className="table-header">Date</th>
+                    <th className="table-header">Reason</th>
+                    <th className="table-header">Status</th>
+                    <th className="table-header">Reviewed By</th>
+                    <th className="table-header text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {wfhRequests.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-8 text-gray-400">No WFH requests</td></tr>
+                    <tr><td colSpan={6} className="text-center py-8 text-slate-400 text-sm">No WFH requests</td></tr>
                   ) : (
                     wfhRequests.map((req) => (
-                      <tr key={req.id} data-testid={`wfh-row-${req.id}`} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="py-3 px-4 text-sm font-medium text-gray-900">{req.user_name}</td>
-                        <td className="py-3 px-4 text-sm text-gray-600">{req.date}</td>
-                        <td className="py-3 px-4 text-sm text-gray-600 max-w-[200px] truncate">{req.reason}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            req.status === "approved" ? "bg-green-100 text-green-700" :
-                            req.status === "rejected" ? "bg-red-100 text-red-700" :
-                            "bg-yellow-100 text-yellow-700"
+                      <tr key={req.id} data-testid={`wfh-row-${req.id}`} className="table-row">
+                        <td className="table-cell font-semibold text-slate-900 text-sm">{req.user_name}</td>
+                        <td className="table-cell text-slate-600">{req.date}</td>
+                        <td className="table-cell text-slate-600 max-w-[200px] truncate">{req.reason}</td>
+                        <td className="table-cell">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                            req.status === "approved" ? "bg-green-50 text-green-700 border border-green-200" :
+                            req.status === "rejected" ? "bg-red-50 text-red-700 border border-red-200" :
+                            "bg-amber-50 text-amber-700 border border-amber-200"
                           }`}>
                             {req.status}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">{req.reviewed_by || "-"}</td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="table-cell text-slate-500 text-sm">{req.reviewed_by || "-"}</td>
+                        <td className="table-cell text-right">
                           {req.status === "pending" && (
                             <div className="flex gap-2 justify-end">
                               <Button
                                 data-testid={`wfh-approve-${req.id}`}
                                 size="sm"
                                 onClick={() => handleWfhAction(req.id, "approve")}
-                                className="bg-green-600 hover:bg-green-700 text-white h-8 px-3"
+                                className="bg-green-600 hover:bg-green-700 text-white h-8 w-8 p-0 rounded-lg"
                               >
                                 <Check className="h-4 w-4" />
                               </Button>
@@ -2107,7 +2123,7 @@ export default function AdminDashboard() {
                                 data-testid={`wfh-reject-${req.id}`}
                                 size="sm"
                                 onClick={() => handleWfhAction(req.id, "reject")}
-                                className="bg-red-600 hover:bg-red-700 text-white h-8 px-3"
+                                className="bg-red-500 hover:bg-red-600 text-white h-8 w-8 p-0 rounded-lg"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -2128,14 +2144,14 @@ export default function AdminDashboard() {
           <>
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Attendance Records</h1>
-                <p className="text-gray-500 mt-1">View employee attendance with location tracking</p>
+                <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Attendance Records</h1>
+                <p className="text-slate-500 mt-1 text-sm">View employee attendance with location tracking</p>
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin && (
                   <Dialog open={officeDialogOpen} onOpenChange={setOfficeDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button data-testid="office-settings-btn" variant="outline" className="gap-2 border-gray-300">
+                      <Button data-testid="office-settings-btn" variant="outline" className="gap-2 border-slate-200 rounded-xl">
                         <GearSix className="h-4 w-4" />
                         Office Location
                       </Button>
@@ -2144,7 +2160,7 @@ export default function AdminDashboard() {
                       <DialogHeader>
                         <DialogTitle className="font-['Outfit']">Office Geofence Settings</DialogTitle>
                       </DialogHeader>
-                      <p className="text-sm text-gray-500 -mt-2">Set office coordinates and allowed radius for clock-in.</p>
+                      <p className="text-sm text-slate-500 -mt-2">Set office coordinates and allowed radius for clock-in.</p>
                       <div className="space-y-4 pt-4">
                         <div className="space-y-2">
                           <Label>Office Name</Label>
@@ -2163,9 +2179,9 @@ export default function AdminDashboard() {
                         <div className="space-y-2">
                           <Label>Allowed Radius (km)</Label>
                           <Input data-testid="office-radius-input" type="number" step="0.1" value={officeForm.radius_km} onChange={(e) => setOfficeForm({ ...officeForm, radius_km: parseFloat(e.target.value) })} />
-                          <p className="text-xs text-gray-500">{(officeForm.radius_km * 1000).toFixed(0)} meters</p>
+                          <p className="text-xs text-slate-400">{(officeForm.radius_km * 1000).toFixed(0)} meters</p>
                         </div>
-                        <Button data-testid="save-office-btn" onClick={handleSaveOfficeSettings} className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]">
+                        <Button data-testid="save-office-btn" onClick={handleSaveOfficeSettings} className="w-full bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl">
                           Save Office Location
                         </Button>
                       </div>
@@ -2174,7 +2190,7 @@ export default function AdminDashboard() {
                 )}
                 <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button data-testid="export-attendance-btn" className="bg-[#00C853] text-white hover:bg-[#00A844] gap-2">
+                    <Button data-testid="export-attendance-btn" className="bg-green-600 text-white hover:bg-green-700 gap-2 rounded-xl">
                       <FileXls className="h-4 w-4" weight="bold" />
                       Export to Excel
                     </Button>
@@ -2219,18 +2235,18 @@ export default function AdminDashboard() {
 
             {/* View Toggle */}
             <div className="flex items-center gap-3 mb-5">
-              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
                 <button
                   data-testid="attendance-table-view"
                   onClick={() => setAttendanceView("table")}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${attendanceView === "table" ? "bg-white text-[#002FA7] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-all ${attendanceView === "table" ? "bg-white text-[#002FA7] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                   Table View
                 </button>
                 <button
                   data-testid="attendance-map-view"
                   onClick={() => { setAttendanceView("map"); fetchLocationData(locationDate); }}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${attendanceView === "map" ? "bg-white text-[#002FA7] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-all ${attendanceView === "map" ? "bg-white text-[#002FA7] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                   Map View
                 </button>
@@ -2241,14 +2257,14 @@ export default function AdminDashboard() {
                   type="date"
                   value={locationDate}
                   onChange={(e) => { setLocationDate(e.target.value); fetchLocationData(e.target.value); }}
-                  className="w-44"
+                  className="w-44 rounded-xl"
                 />
               )}
             </div>
 
             {/* Table View */}
             {attendanceView === "table" && (
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
                 <table className="w-full">
                   <thead>
                     <tr>
@@ -2265,12 +2281,12 @@ export default function AdminDashboard() {
                   <tbody>
                     {attendance.length === 0 ? (
                       <tr>
-                        <td colSpan="8" className="text-center py-8 text-gray-500">No attendance records</td>
+                        <td colSpan="8" className="text-center py-8 text-slate-400 text-sm">No attendance records</td>
                       </tr>
                     ) : (
                       attendance.slice(0, 50).map((rec, idx) => (
                         <tr key={idx} className="table-row">
-                          <td className="table-cell font-medium">{rec.user_name}</td>
+                          <td className="table-cell font-semibold text-slate-900">{rec.user_name}</td>
                           <td className="table-cell">{format(new Date(rec.date), "MMM d, yyyy")}</td>
                           <td className="table-cell">{format(new Date(rec.clock_in), "h:mm a")}</td>
                           <td className="table-cell">
@@ -2281,7 +2297,7 @@ export default function AdminDashboard() {
                               <div className="max-w-[200px]">
                                 <div className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3 text-[#002FA7] flex-shrink-0" weight="fill" />
-                                  <span className="text-xs text-gray-700 truncate" title={rec.clock_in_address}>
+                                  <span className="text-xs text-slate-600 truncate" title={rec.clock_in_address}>
                                     {rec.clock_in_address.split(",").slice(0, 3).join(",")}
                                   </span>
                                 </div>
@@ -2292,12 +2308,12 @@ export default function AdminDashboard() {
                                 )}
                               </div>
                             ) : (
-                              <span className="text-xs text-gray-400">No location</span>
+                              <span className="text-xs text-slate-300">No location</span>
                             )}
                           </td>
                           <td className="table-cell">{rec.total_break_minutes || 0} min</td>
                           <td className="table-cell">
-                            <span className={rec.working_hours && rec.working_hours < 8 ? "text-[#FF2E00] font-medium" : ""}>
+                            <span className={rec.working_hours && rec.working_hours < 8 ? "text-red-500 font-semibold" : "font-medium"}>
                               {rec.working_hours ? formatHours(rec.working_hours) : "—"}
                             </span>
                           </td>
@@ -2311,7 +2327,7 @@ export default function AdminDashboard() {
                                 <span className="badge-pending">Active</span>
                               )}
                               {rec.break_outside_geofence && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-600 text-[10px] font-medium" title="Employee took a break outside office geofence">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-600 text-[10px] font-semibold border border-orange-100" title="Employee took a break outside office geofence">
                                   <Warning className="h-3 w-3" weight="fill" />
                                   Break
                                 </span>
@@ -2328,13 +2344,13 @@ export default function AdminDashboard() {
 
             {/* Map View */}
             {attendanceView === "map" && (
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <NavigationArrow className="h-4 w-4 text-[#002FA7]" weight="fill" />
-                    <span className="text-sm font-medium text-gray-700">Employee Locations — {format(new Date(locationDate + "T00:00:00"), "MMM d, yyyy")}</span>
+                    <span className="text-sm font-semibold text-slate-700">Employee Locations — {format(new Date(locationDate + "T00:00:00"), "MMM d, yyyy")}</span>
                   </div>
-                  <span className="text-xs text-gray-500">{locationData.length} records with location</span>
+                  <span className="text-xs text-slate-400">{locationData.length} records with location</span>
                 </div>
                 <div style={{ height: "500px", width: "100%" }} data-testid="attendance-map">
                   <MapContainer
@@ -2388,7 +2404,7 @@ export default function AdminDashboard() {
                   </MapContainer>
                 </div>
                 {/* Location legend */}
-                <div className="px-5 py-3 bg-gray-50 border-t flex items-center gap-6 text-xs text-gray-600">
+                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-6 text-xs text-slate-500">
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded-full border-2 border-[#002FA7] bg-[#002FA7]/10"></div>
                     Office Geofence
@@ -2411,11 +2427,11 @@ export default function AdminDashboard() {
         {activeTab === "permissions" && (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Permission Requests</h1>
-              <p className="text-gray-500 mt-1">Review and manage permission applications (2 hours/month per employee, max 1 hour per use)</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Permission Requests</h1>
+              <p className="text-slate-500 mt-1 text-sm">Review and manage permission applications (2 hours/month per employee, max 1 hour per use)</p>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
               <table className="w-full">
                 <thead>
                   <tr>
@@ -2430,7 +2446,7 @@ export default function AdminDashboard() {
                 <tbody>
                   {permissionRequests.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-8 text-gray-500">No permission requests</td>
+                      <td colSpan="6" className="text-center py-8 text-slate-400 text-sm">No permission requests</td>
                     </tr>
                   ) : (
                     permissionRequests.map((perm) => (
@@ -2481,25 +2497,25 @@ export default function AdminDashboard() {
         {activeTab === "holidays" && (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Holiday List 2026</h1>
-              <p className="text-gray-500 mt-1">Public holidays and weekly offs for all employees</p>
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Holiday List 2026</h1>
+              <p className="text-slate-500 mt-1 text-sm">Public holidays and weekly offs for all employees</p>
             </div>
 
             {/* Weekend Info */}
-            <div className="bg-[#E5ECFF] border border-[#002FA7]/20 rounded-sm p-4 mb-6">
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
               <div className="flex items-center gap-2">
                 <CalendarStar className="h-5 w-5 text-[#002FA7]" weight="duotone" />
-                <p className="text-sm font-medium text-[#002FA7]">
+                <p className="text-sm font-semibold text-[#002FA7]">
                   Saturday & Sunday are weekly holidays for all employees
                 </p>
               </div>
             </div>
 
             {/* Holidays Table */}
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
+                  <tr>
                     <th className="table-header">#</th>
                     <th className="table-header">Date</th>
                     <th className="table-header">Day</th>
@@ -2512,12 +2528,12 @@ export default function AdminDashboard() {
                     const holidayDate = new Date(holiday.date + "T00:00:00");
                     const isPast = holidayDate < new Date(new Date().toDateString());
                     return (
-                      <tr key={index} className={`border-b border-gray-100 ${isPast ? "opacity-50" : ""}`}>
-                        <td className="table-cell text-gray-500">{index + 1}</td>
-                        <td className="table-cell font-medium">
+                      <tr key={index} className={`table-row ${isPast ? "opacity-50" : ""}`}>
+                        <td className="table-cell text-slate-400">{index + 1}</td>
+                        <td className="table-cell font-semibold">
                           {format(holidayDate, "dd MMM yyyy")}
                         </td>
-                        <td className="table-cell">{holiday.day}</td>
+                        <td className="table-cell text-slate-600">{holiday.day}</td>
                         <td className="table-cell">
                           <span className="inline-flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-[#002FA7]"></span>
@@ -2525,8 +2541,8 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="table-cell">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            isPast ? "bg-gray-100 text-gray-500" : "bg-[#E6FFEE] text-[#00C853]"
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                            isPast ? "bg-slate-100 text-slate-500" : "bg-green-50 text-green-600 border border-green-200"
                           }`}>
                             {isPast ? "Passed" : "Upcoming"}
                           </span>
@@ -2538,8 +2554,8 @@ export default function AdminDashboard() {
               </table>
             </div>
 
-            <div className="mt-4 text-sm text-gray-500">
-              Total public holidays: <strong>{holidays.length}</strong>
+            <div className="mt-4 text-sm text-slate-500">
+              Total public holidays: <strong className="text-slate-900">{holidays.length}</strong>
             </div>
           </>
         )}
@@ -2549,8 +2565,8 @@ export default function AdminDashboard() {
           <>
             <div className="flex items-center justify-between mb-8">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Company Policy</h1>
-                <p className="text-gray-500 mt-1">Rules and guidelines for all employees</p>
+                <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Company Policy</h1>
+                <p className="text-slate-500 mt-1 text-sm">Rules and guidelines for all employees</p>
               </div>
               {isAdmin && (
                 <Button
@@ -2560,7 +2576,7 @@ export default function AdminDashboard() {
                     setPolicyForm({ title: "", category: "", content: "", icon: "article", sort_order: policies.length + 1 });
                     setPolicyDialogOpen(true);
                   }}
-                  className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2"
+                  className="bg-[#002FA7] text-white hover:bg-[#002482] gap-2 rounded-xl"
                 >
                   <Plus className="h-4 w-4" /> Add Policy
                 </Button>
@@ -2569,15 +2585,15 @@ export default function AdminDashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {policies.map((policy) => (
-                <div key={policy.id} className="bg-white border border-gray-200 rounded-sm p-6 hover:shadow-md transition-shadow">
+                <div key={policy.id} className="bg-white border border-slate-200 rounded-xl p-6 hover:shadow-md transition-shadow" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-[#E5ECFF] flex items-center justify-center">
+                      <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center">
                         <Scroll className="h-5 w-5 text-[#002FA7]" weight="duotone" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-gray-900 font-['Outfit']">{policy.title}</h3>
-                        <span className="text-xs font-medium text-[#002FA7] bg-[#E5ECFF] px-2 py-0.5 rounded-full">{policy.category}</span>
+                        <h3 className="font-bold text-slate-900 font-['Outfit']">{policy.title}</h3>
+                        <span className="text-xs font-semibold text-[#002FA7] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">{policy.category}</span>
                       </div>
                     </div>
                     {isAdmin && (
@@ -2591,7 +2607,7 @@ export default function AdminDashboard() {
                             setPolicyForm({ title: policy.title, category: policy.category, content: policy.content, icon: policy.icon || "article", sort_order: policy.sort_order || 0 });
                             setPolicyDialogOpen(true);
                           }}
-                          className="text-gray-400 hover:text-[#002FA7] h-8 w-8 p-0"
+                          className="text-slate-400 hover:text-[#002FA7] h-8 w-8 p-0"
                         >
                           <PencilLine className="h-4 w-4" />
                         </Button>
@@ -2600,14 +2616,14 @@ export default function AdminDashboard() {
                           size="sm"
                           data-testid={`delete-policy-${policy.id}`}
                           onClick={() => handleDeletePolicy(policy.id)}
-                          className="text-gray-400 hover:text-red-500 h-8 w-8 p-0"
+                          className="text-slate-400 hover:text-red-500 h-8 w-8 p-0"
                         >
                           <TrashSimple className="h-4 w-4" />
                         </Button>
                       </div>
                     )}
                   </div>
-                  <div className="text-sm text-gray-600 whitespace-pre-line leading-relaxed">
+                  <div className="text-sm text-slate-600 whitespace-pre-line leading-relaxed">
                     {policy.content}
                   </div>
                 </div>
@@ -2615,9 +2631,9 @@ export default function AdminDashboard() {
             </div>
 
             {policies.length === 0 && (
-              <div className="text-center py-16 text-gray-400">
+              <div className="text-center py-16 text-slate-400">
                 <Scroll className="h-12 w-12 mx-auto mb-3" weight="duotone" />
-                <p className="font-medium">No policies added yet</p>
+                <p className="font-semibold">No policies added yet</p>
                 {isAdmin && <p className="text-sm mt-1">Click "Add Policy" to create company policies</p>}
               </div>
             )}
@@ -2662,7 +2678,7 @@ export default function AdminDashboard() {
                     <Label>Content</Label>
                     <textarea
                       data-testid="policy-content-input"
-                      className="flex min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      className="flex min-h-[160px] w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       placeholder="Write the policy details here..."
                       value={policyForm.content}
                       onChange={(e) => setPolicyForm({ ...policyForm, content: e.target.value })}
@@ -2672,7 +2688,7 @@ export default function AdminDashboard() {
                     data-testid="save-policy-btn"
                     onClick={handleSavePolicy}
                     disabled={loading}
-                    className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                    className="w-full bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl"
                   >
                     {editingPolicy ? "Update Policy" : "Add Policy"}
                   </Button>

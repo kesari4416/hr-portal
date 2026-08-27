@@ -3,7 +3,6 @@ load_dotenv()
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 import aiomysql
 import os
@@ -16,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
 import io
+import asyncio
 
 # Cookie security - detect HTTPS from FRONTEND_URL
 IS_HTTPS = os.environ.get("FRONTEND_URL", "").startswith("https")
@@ -33,6 +33,63 @@ import math
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 ROOT_DIR = Path(__file__).parent
+
+# ── Emergent Object Storage ──────────────────────────────────────────────────
+import requests as _requests
+import uuid as _uuid
+
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "sparkcurv-hr"
+_storage_key = None
+
+def _init_storage(force: bool = False):
+    global _storage_key
+    if _storage_key and not force:
+        return _storage_key
+    resp = _requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+def _put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = _init_storage()
+    resp = _requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    if resp.status_code == 404:
+        key = _init_storage(force=True)
+        resp = _requests.put(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key, "Content-Type": content_type},
+            data=data, timeout=120
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+def _get_object(path: str) -> tuple:
+    key = _init_storage()
+    resp = _requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    if resp.status_code == 404:
+        key = _init_storage(force=True)
+        resp = _requests.get(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key}, timeout=60
+        )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+MIME_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp"
+}
+# ─────────────────────────────────────────────────────────────────────────────
 
 # MySQL connection pool
 pool = None
@@ -140,13 +197,6 @@ async def require_admin_or_manager(request: Request) -> dict:
 
 # Create the main app
 app = FastAPI()
-
-# Uploads directory
-UPLOAD_DIR = ROOT_DIR / "uploads" / "avatars"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-# Serve uploaded files as static
-app.mount("/uploads", StaticFiles(directory=str(ROOT_DIR / "uploads")), name="uploads")
 
 # Create routers
 api_router = APIRouter(prefix="/api")
@@ -950,20 +1000,36 @@ async def upload_employee_avatar(employee_id: str, request: Request, file: Uploa
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     
-    # Save file
+    # Upload to Emergent Object Storage
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
-    filename = f"avatar_{employee_id}.{ext}"
-    filepath = UPLOAD_DIR / filename
+    storage_path = f"{APP_NAME}/avatars/avatar_{employee_id}_{_uuid.uuid4().hex[:8]}.{ext}"
+    content_type = MIME_TYPES.get(ext, "image/jpeg")
     
-    with open(filepath, "wb") as f:
-        f.write(contents)
+    try:
+        result = await asyncio.to_thread(_put_object, storage_path, contents, content_type)
+        stored_path = result.get("path", storage_path)
+    except Exception as e:
+        logging.error(f"Object storage upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Avatar upload failed")
     
-    # Build URL - use FRONTEND_URL for production compatibility
-    avatar_url = f"/uploads/avatars/{filename}"
+    # Store path as backend proxy URL
+    avatar_url = f"/api/admin/avatars/{stored_path}"
     
     await execute_query("UPDATE users SET avatar_url = %s WHERE id = %s", (avatar_url, int(employee_id)))
     
     return {"message": "Avatar uploaded", "avatar_url": avatar_url}
+
+@admin_router.get("/avatars/{path:path}")
+async def serve_avatar(path: str):
+    """Proxy avatar images from Emergent Object Storage."""
+    try:
+        data, content_type = await asyncio.to_thread(_get_object, path)
+        return Response(content=data, media_type=content_type, headers={
+            "Cache-Control": "public, max-age=86400"
+        })
+    except Exception as e:
+        logging.error(f"Avatar fetch failed for {path}: {e}")
+        raise HTTPException(status_code=404, detail="Avatar not found")
 
 @admin_router.get("/leave-requests")
 async def get_all_leave_requests(request: Request, status: Optional[str] = None):
