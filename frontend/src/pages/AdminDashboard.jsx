@@ -350,12 +350,11 @@ export default function AdminDashboard() {
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !uploadingAvatarFor) return;
-    
-    const formData = new FormData();
-    formData.append("file", file);
-    
     setLoading(true);
     try {
+      const compressed = await compressImage(file);
+      const formData = new FormData();
+      formData.append("file", compressed);
       await api.post(`/admin/employees/${uploadingAvatarFor}/avatar`, formData);
       toast.success("Photo uploaded successfully");
       fetchData();
@@ -802,15 +801,41 @@ export default function AdminDashboard() {
     }
   };
 
+  // Compress + resize image to max 800px, JPEG quality 0.82 — keeps file tiny for proxies
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    const MAX = 800;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let { width, height } = img;
+        if (width > height && width > MAX) { height = Math.round(height * MAX / width); width = MAX; }
+        else if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; }
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error("Canvas toBlob failed")); return; }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
+        }, "image/jpeg", 0.82);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
   const handleOrgNodeImageUpload = async (nodeId, file) => {
-    const formData = new FormData();
-    formData.append("file", file);
     try {
-      const res = await api.post(`/admin/org-chart/${nodeId}/image`, formData);
+      const compressed = await compressImage(file);
+      const formData = new FormData();
+      formData.append("file", compressed);
+      await api.post(`/admin/org-chart/${nodeId}/image`, formData);
       toast.success("Image uploaded");
       api.get("/admin/org-chart").then(r => setOrgNodes(r.data));
     } catch (e) {
-      toast.error("Image upload failed");
+      toast.error(e.response?.data?.detail || "Image upload failed");
     }
   };
 
