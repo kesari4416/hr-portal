@@ -35,7 +35,6 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 ROOT_DIR = Path(__file__).parent
 
 # ── Emergent Object Storage ──────────────────────────────────────────────────
-import requests as _requests
 import uuid as _uuid
 
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
@@ -44,46 +43,50 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "sparkcurv-hr"
 _storage_key = None
 
-def _init_storage(force: bool = False):
+async def _get_storage_key(force: bool = False) -> str:
     global _storage_key
     if _storage_key and not force:
         return _storage_key
-    resp = _requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
-    resp.raise_for_status()
-    _storage_key = resp.json()["storage_key"]
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY})
+        resp.raise_for_status()
+        _storage_key = resp.json()["storage_key"]
     return _storage_key
 
-def _put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = _init_storage()
-    resp = _requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=120
-    )
-    if resp.status_code == 404:
-        key = _init_storage(force=True)
-        resp = _requests.put(
+async def _put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = await _get_storage_key()
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.put(
             f"{STORAGE_URL}/objects/{path}",
             headers={"X-Storage-Key": key, "Content-Type": content_type},
-            data=data, timeout=120
+            content=data
         )
-    resp.raise_for_status()
-    return resp.json()
+        if resp.status_code == 404:
+            key = await _get_storage_key(force=True)
+            resp = await client.put(
+                f"{STORAGE_URL}/objects/{path}",
+                headers={"X-Storage-Key": key, "Content-Type": content_type},
+                content=data
+            )
+        logging.info(f"_put_object {path} → {resp.status_code}")
+        resp.raise_for_status()
+        return resp.json()
 
-def _get_object(path: str) -> tuple:
-    key = _init_storage()
-    resp = _requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key}, timeout=60
-    )
-    if resp.status_code == 404:
-        key = _init_storage(force=True)
-        resp = _requests.get(
+async def _get_object(path: str) -> tuple:
+    key = await _get_storage_key()
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.get(
             f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key}, timeout=60
+            headers={"X-Storage-Key": key}
         )
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+        if resp.status_code == 404:
+            key = await _get_storage_key(force=True)
+            resp = await client.get(
+                f"{STORAGE_URL}/objects/{path}",
+                headers={"X-Storage-Key": key}
+            )
+        resp.raise_for_status()
+        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 MIME_TYPES = {
     "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
@@ -1078,7 +1081,7 @@ async def upload_employee_avatar(employee_id: str, request: Request, file: Uploa
     content_type = MIME_TYPES.get(ext, "image/jpeg")
     
     try:
-        result = await asyncio.to_thread(_put_object, storage_path, contents, content_type)
+        result = await _put_object(storage_path, contents, content_type)
         stored_path = result.get("path", storage_path)
     except Exception as e:
         logging.error(f"Object storage upload failed: {e}")
@@ -1095,7 +1098,7 @@ async def upload_employee_avatar(employee_id: str, request: Request, file: Uploa
 async def serve_avatar(path: str):
     """Proxy avatar images from Emergent Object Storage."""
     try:
-        data, content_type = await asyncio.to_thread(_get_object, path)
+        data, content_type = await _get_object(path)
         return Response(content=data, media_type=content_type, headers={
             "Cache-Control": "public, max-age=86400"
         })
@@ -1242,10 +1245,11 @@ async def upload_org_node_image(node_id: int, file: UploadFile = File(...), requ
     storage_path = f"{APP_NAME}/org/{node_id}_{_uuid.uuid4().hex[:8]}.{ext}"
     content_type = MIME_TYPES.get(ext, "image/jpeg")
     try:
-        result = await asyncio.to_thread(_put_object, storage_path, contents, content_type)
+        result = await _put_object(storage_path, contents, content_type)
         stored_path = result.get("path", storage_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Image upload failed")
+        logging.error(f"Org node image upload failed for node {node_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
     image_url = f"/api/admin/avatars/{stored_path}"
     await execute_query("UPDATE org_chart SET image_url=%s WHERE id=%s", (image_url, node_id))
     return {"image_url": image_url}
