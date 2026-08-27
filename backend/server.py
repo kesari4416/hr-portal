@@ -833,7 +833,7 @@ async def get_my_shift(request: Request):
 @leave_router.get("/balance")
 async def get_leave_balance(request: Request):
     user = await get_current_user(request)
-    return {"casual": user.get("casual_leave", 12), "sick": user.get("sick_leave", 3), "loss_of_pay": user.get("loss_of_pay", 0), "wfh_limit": user.get("wfh_limit", 4)}
+    return {"casual": user.get("casual_leave", 12), "sick": user.get("sick_leave", 3), "loss_of_pay": user.get("loss_of_pay", 0), "wfh_limit": user.get("wfh_limit")}
 
 @leave_router.post("/request")
 async def create_leave_request(leave_data: LeaveRequest, request: Request):
@@ -981,7 +981,7 @@ async def create_employee(user_data: UserRegister, request: Request):
         last_id=True
     )
 
-    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code, "wfh_limit": 4}
+    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code, "wfh_limit": None}
 
 @admin_router.put("/employees/{employee_id}")
 async def update_employee(employee_id: str, update_data: EmployeeUpdate, request: Request):
@@ -1096,7 +1096,8 @@ async def update_leave_balance(employee_id: str, data: LeaveBalanceUpdate, reque
         fields.append("loss_of_pay = %s"); values.append(data.loss_of_pay)
     if data.permission_hours is not None:
         fields.append("permission_hours = %s"); values.append(data.permission_hours)
-    if data.wfh_limit is not None:
+    # wfh_limit: if field was sent (even as null), update it (null = remove limit)
+    if "wfh_limit" in data.model_fields_set:
         fields.append("wfh_limit = %s"); values.append(data.wfh_limit)
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -2049,10 +2050,10 @@ async def create_wfh_request(wfh_data: WFHRequest, request: Request):
         "SELECT COUNT(*) as cnt FROM wfh_requests WHERE user_id = %s AND date >= %s AND date < %s AND status IN ('pending', 'approved')",
         (user["id"], month_start, month_end), fetch_one=True
     )
-    wfh_limit = user.get("wfh_limit", 4) or 4
+    wfh_limit = user.get("wfh_limit")  # None = no limit set by admin
     used_count = used["cnt"] if used else 0
-    if used_count >= wfh_limit:
-        raise HTTPException(status_code=400, detail=f"Monthly WFH limit reached ({wfh_limit} days)")
+    if wfh_limit is not None and used_count >= wfh_limit:
+        raise HTTPException(status_code=400, detail=f"Monthly WFH limit reached ({wfh_limit} days). Contact admin to increase your limit.")
 
     wfh_id = await execute_query(
         """INSERT INTO wfh_requests (user_id, user_name, user_email, date, reason, status, created_at)
@@ -2090,9 +2091,10 @@ async def get_wfh_balance(request: Request):
         "SELECT COUNT(*) as cnt FROM wfh_requests WHERE user_id = %s AND date >= %s AND date < %s AND status IN ('pending', 'approved')",
         (user["id"], month_start, month_end), fetch_one=True
     )
-    wfh_limit = user.get("wfh_limit", 4) or 4
+    wfh_limit = user.get("wfh_limit")  # None = admin hasn't set a limit
     used_count = used["cnt"] if used else 0
-    return {"limit": wfh_limit, "used": used_count, "remaining": max(0, wfh_limit - used_count)}
+    remaining = None if wfh_limit is None else max(0, wfh_limit - used_count)
+    return {"limit": wfh_limit, "used": used_count, "remaining": remaining}
 
 @wfh_router.delete("/{wfh_id}")
 async def cancel_wfh_request(wfh_id: str, request: Request):
@@ -2791,7 +2793,7 @@ async def init_database():
             try:
                 await cur.execute("SELECT wfh_limit FROM users LIMIT 1")
             except Exception:
-                await cur.execute("ALTER TABLE users ADD COLUMN wfh_limit INT DEFAULT 4")
+                await cur.execute("ALTER TABLE users ADD COLUMN wfh_limit INT DEFAULT NULL")
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS wfh_requests (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -3047,7 +3049,7 @@ async def startup():
             await execute_query("SELECT wfh_limit FROM users LIMIT 1", fetch_one=True)
         except Exception:
             try:
-                await execute_query("ALTER TABLE users ADD COLUMN wfh_limit INT DEFAULT 4")
+                await execute_query("ALTER TABLE users ADD COLUMN wfh_limit INT DEFAULT NULL")
                 logger.info("Added wfh_limit column to users")
             except Exception as e:
                 logger.warning(f"Could not add wfh_limit column: {e}")

@@ -68,7 +68,7 @@ export default function EmployeeDashboard() {
   const [myShift, setMyShift] = useState(null);
   const [holidays, setHolidays] = useState([]);
   const [policies, setPolicies] = useState([]);
-  const [wfhBalance, setWfhBalance] = useState({ limit: 4, used: 0, remaining: 4 });
+  const [wfhBalance, setWfhBalance] = useState({ limit: null, used: 0, remaining: null });
   const [wfhRequests, setWfhRequests] = useState([]);
   const [wfhDialogOpen, setWfhDialogOpen] = useState(false);
   const [wfhForm, setWfhForm] = useState({ date: null, reason: "" });
@@ -1787,7 +1787,10 @@ export default function EmployeeDashboard() {
                       />
                     </div>
                     <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-700">
-                      Monthly WFH Balance: <strong>{wfhBalance.remaining}</strong> of {wfhBalance.limit} days remaining
+                      {wfhBalance.limit === null
+                        ? <span>WFH limit <strong>not set</strong> — contact admin</span>
+                        : <span>Monthly WFH Balance: <strong>{wfhBalance.remaining}</strong> of {wfhBalance.limit} days remaining</span>
+                      }
                     </div>
                     <Button
                       data-testid="submit-wfh-btn"
@@ -1806,7 +1809,7 @@ export default function EmployeeDashboard() {
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-white border border-gray-200 rounded-sm p-4">
                 <p className="text-xs text-gray-500 mb-1">Monthly Limit</p>
-                <p className="text-2xl font-bold text-gray-900">{wfhBalance.limit}</p>
+                <p className="text-2xl font-bold text-gray-900">{wfhBalance.limit ?? <span className="text-base text-gray-400">Not set</span>}</p>
               </div>
               <div className="bg-white border border-gray-200 rounded-sm p-4">
                 <p className="text-xs text-gray-500 mb-1">Used</p>
@@ -1814,7 +1817,7 @@ export default function EmployeeDashboard() {
               </div>
               <div className="bg-white border border-gray-200 rounded-sm p-4">
                 <p className="text-xs text-gray-500 mb-1">Remaining</p>
-                <p className="text-2xl font-bold text-[#00C853]">{wfhBalance.remaining}</p>
+                <p className="text-2xl font-bold text-[#00C853]">{wfhBalance.remaining ?? <span className="text-base text-gray-400">—</span>}</p>
               </div>
             </div>
 

@@ -129,7 +129,7 @@ export default function AdminDashboard() {
     sick_leave: 0,
     permission_hours: 2,
     role: "employee",
-    wfh_limit: 4
+    wfh_limit: null
   });
   const [changeRequests, setChangeRequests] = useState([]);
   const [crActionNotes, setCrActionNotes] = useState("");
@@ -145,7 +145,7 @@ export default function AdminDashboard() {
 
   // Leave balance edit
   const [leaveBalanceOpen, setLeaveBalanceOpen] = useState(false);
-  const [leaveBalanceForm, setLeaveBalanceForm] = useState({ casual_leave: 0, sick_leave: 0, loss_of_pay: 0, permission_hours: 2, wfh_limit: 4 });
+  const [leaveBalanceForm, setLeaveBalanceForm] = useState({ casual_leave: 0, sick_leave: 0, loss_of_pay: 0, permission_hours: 2, wfh_limit: "" });
   const [leaveBalanceEmp, setLeaveBalanceEmp] = useState(null);
 
   // Org chart
@@ -527,7 +527,7 @@ export default function AdminDashboard() {
       sick_leave: employee.sick_leave || 3,
       permission_hours: employee.permission_hours || 2,
       role: employee.role || "employee",
-      wfh_limit: employee.wfh_limit ?? 4
+      wfh_limit: employee.wfh_limit ?? ""
     });
     setEditEmployeeOpen(true);
   };
@@ -694,7 +694,7 @@ export default function AdminDashboard() {
       sick_leave: emp.sick_leave ?? 6,
       loss_of_pay: emp.loss_of_pay ?? 0,
       permission_hours: emp.permission_hours ?? 2,
-      wfh_limit: emp.wfh_limit ?? 4
+      wfh_limit: emp.wfh_limit ?? ""
     });
     setLeaveBalanceOpen(true);
   };
@@ -1360,8 +1360,8 @@ export default function AdminDashboard() {
                       <Input
                         data-testid="edit-wfh-limit"
                         type="number"
-                        value={editForm.wfh_limit}
-                        onChange={(e) => setEditForm({ ...editForm, wfh_limit: parseInt(e.target.value) || 0 })}
+                        value={editForm.wfh_limit ?? ""}
+                        onChange={(e) => setEditForm({ ...editForm, wfh_limit: e.target.value === "" ? null : parseInt(e.target.value) || null })}
                       />
                     </div>
                   </div>
@@ -2988,11 +2988,19 @@ export default function AdminDashboard() {
                         data-testid={`lb-${key}`}
                         type="number"
                         min="0"
-                        step="0.5"
-                        value={leaveBalanceForm[key]}
-                        onChange={e => setLeaveBalanceForm(f => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
+                        step={key === "wfh_limit" ? "1" : "0.5"}
+                        placeholder={key === "wfh_limit" ? "No limit" : "0"}
+                        value={leaveBalanceForm[key] ?? ""}
+                        onChange={e => {
+                          const raw = e.target.value;
+                          const val = raw === "" ? null : (key === "wfh_limit" ? parseInt(raw) : parseFloat(raw));
+                          setLeaveBalanceForm(f => ({ ...f, [key]: isNaN(val) ? null : val }));
+                        }}
                         className="rounded-xl h-11"
                       />
+                      {key === "wfh_limit" && (
+                        <p className="text-xs text-slate-400">Clear to remove limit</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -3103,11 +3111,19 @@ export default function AdminDashboard() {
                         data-testid={`lb-${key}`}
                         type="number"
                         min="0"
-                        step="0.5"
-                        value={leaveBalanceForm[key]}
-                        onChange={e => setLeaveBalanceForm(f => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
+                        step={key === "wfh_limit" ? "1" : "0.5"}
+                        placeholder={key === "wfh_limit" ? "No limit" : "0"}
+                        value={leaveBalanceForm[key] ?? ""}
+                        onChange={e => {
+                          const raw = e.target.value;
+                          const val = raw === "" ? null : (key === "wfh_limit" ? parseInt(raw) : parseFloat(raw));
+                          setLeaveBalanceForm(f => ({ ...f, [key]: isNaN(val) ? null : val }));
+                        }}
                         className="rounded-xl h-11"
                       />
+                      {key === "wfh_limit" && (
+                        <p className="text-xs text-slate-400">Clear to remove limit</p>
+                      )}
                     </div>
                   ))}
                 </div>
