@@ -10,7 +10,8 @@ import { format } from "date-fns";
 import { 
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
-  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop
+  ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
+  GitPullRequest
 } from "@phosphor-icons/react";
 import { useRef } from "react";
 
@@ -66,6 +67,15 @@ export default function AdminDashboard() {
   const [holidays, setHolidays] = useState([]);
   const [policies, setPolicies] = useState([]);
   const [wfhRequests, setWfhRequests] = useState([]);
+  const [payrollSummary, setPayrollSummary] = useState(null);
+  const [payrollSubTab, setPayrollSubTab] = useState("dashboard");
+  const [selectedEmpDeductions, setSelectedEmpDeductions] = useState([]);
+  const [deductionDialogOpen, setDeductionDialogOpen] = useState(false);
+  const [selectedDeductionEmp, setSelectedDeductionEmp] = useState(null);
+  const [deductionForm, setDeductionForm] = useState({ deduction_name: "", amount: 0, is_percentage: false, percentage: 0 });
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [bulkMonth, setBulkMonth] = useState(new Date().getMonth() + 1);
+  const [bulkYear, setBulkYear] = useState(new Date().getFullYear());
   const [policyDialogOpen, setPolicyDialogOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState(null);
   const [policyForm, setPolicyForm] = useState({ title: "", category: "", content: "", icon: "article", sort_order: 0 });
@@ -113,6 +123,8 @@ export default function AdminDashboard() {
     role: "employee",
     wfh_limit: 4
   });
+  const [changeRequests, setChangeRequests] = useState([]);
+  const [crActionNotes, setCrActionNotes] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
@@ -124,7 +136,9 @@ export default function AdminDashboard() {
         api.get("/admin/permissions"),
         api.get("/holidays/list"),
         api.get("/policy/list"),
-        api.get("/admin/wfh-requests")
+        api.get("/admin/wfh-requests"),
+        api.get("/admin/payroll/summary"),
+        api.get("/admin/change-requests")
       ];
       // Only admins can access payslips
       if (user?.role === "admin") {
@@ -139,8 +153,10 @@ export default function AdminDashboard() {
       setHolidays(results[5].data);
       setPolicies(results[6].data);
       setWfhRequests(results[7].data);
-      if (user?.role === "admin" && results[8]) {
-        setPayslips(results[8].data);
+      setPayrollSummary(results[8].data);
+      setChangeRequests(results[9].data);
+      if (user?.role === "admin" && results[10]) {
+        setPayslips(results[10].data);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -309,6 +325,69 @@ export default function AdminDashboard() {
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to process WFH request");
+    }
+  };
+
+  // Payroll handlers
+  const handleBulkProcess = async () => {
+    setBulkProcessing(true);
+    try {
+      const res = await api.post("/admin/payroll/process", { month: bulkMonth, year: bulkYear });
+      toast.success(`Payroll processed: ${res.data.generated} payslips generated, ${res.data.skipped} skipped`);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to process payroll");
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
+  const handleLoadDeductions = async (emp) => {
+    setSelectedDeductionEmp(emp);
+    try {
+      const res = await api.get(`/admin/deductions/${emp.id}`);
+      setSelectedEmpDeductions(res.data);
+      setDeductionDialogOpen(true);
+    } catch { setSelectedEmpDeductions([]); setDeductionDialogOpen(true); }
+  };
+
+  const handleAddDeduction = async () => {
+    if (!deductionForm.deduction_name) { toast.error("Enter deduction name"); return; }
+    try {
+      await api.post("/admin/deductions", {
+        user_id: parseInt(selectedDeductionEmp.id),
+        deduction_name: deductionForm.deduction_name,
+        amount: deductionForm.is_percentage ? 0 : deductionForm.amount,
+        is_percentage: deductionForm.is_percentage,
+        percentage: deductionForm.is_percentage ? deductionForm.percentage : 0
+      });
+      toast.success("Deduction added");
+      setDeductionForm({ deduction_name: "", amount: 0, is_percentage: false, percentage: 0 });
+      const res = await api.get(`/admin/deductions/${selectedDeductionEmp.id}`);
+      setSelectedEmpDeductions(res.data);
+    } catch (error) { toast.error(error.response?.data?.detail || "Failed"); }
+  };
+
+  const handleDeleteDeduction = async (dedId) => {
+    try {
+      await api.delete(`/admin/deductions/${dedId}`);
+      toast.success("Deduction removed");
+      const res = await api.get(`/admin/deductions/${selectedDeductionEmp.id}`);
+      setSelectedEmpDeductions(res.data);
+    } catch (error) { toast.error("Failed to delete"); }
+  };
+
+  const handleCRAction = async (crId, step, action) => {
+    try {
+      const endpoint = step === "manager"
+        ? `/admin/change-requests/${crId}/manager-action?action=${action}&notes=${encodeURIComponent(crActionNotes)}`
+        : `/admin/change-requests/${crId}/admin-action?action=${action}&notes=${encodeURIComponent(crActionNotes)}`;
+      await api.put(endpoint);
+      toast.success(`CR ${action}d successfully`);
+      setCrActionNotes("");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action} CR`);
     }
   };
 
@@ -497,7 +576,8 @@ export default function AdminDashboard() {
   const allNavItems = [
     { id: "overview", label: "Overview", icon: House },
     { id: "employees", label: "Employees", icon: Users, adminOnly: true },
-    { id: "payslips", label: "Payslips", icon: Receipt, adminOnly: true },
+    { id: "payroll", label: "Payroll", icon: CurrencyDollar, adminOnly: true },
+    { id: "change-requests", label: "Change Requests", icon: GitPullRequest },
     { id: "leaves", label: "Leave Requests", icon: CalendarCheck },
     { id: "wfh", label: "WFH Requests", icon: Laptop },
     { id: "permissions", label: "Permissions", icon: Timer },
@@ -1056,54 +1136,328 @@ export default function AdminDashboard() {
           </>
         )}
 
-        {/* Payslips Tab */}
-        {activeTab === "payslips" && (
+        {/* Payroll Tab */}
+        {activeTab === "payroll" && (
           <>
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Payslips</h1>
-                <p className="text-gray-500 mt-1">Generate and manage employee payslips</p>
-              </div>
-              <Dialog open={generatePayslipOpen} onOpenChange={setGeneratePayslipOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="generate-payslip-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
-                    <Receipt className="h-4 w-4" weight="bold" />
-                    Generate Payslip
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="font-['Outfit']">Generate Payslip</DialogTitle>
-                  </DialogHeader>
-                  <p className="text-sm text-gray-500 -mt-2">Select employee and pay period to generate payslip.</p>
-                  <div className="space-y-4 pt-4">
-                    <div className="space-y-2">
-                      <Label>Employee</Label>
-                      <Select
-                        value={payslipForm.employee_id}
-                        onValueChange={(value) => setPayslipForm({ ...payslipForm, employee_id: value })}
-                      >
-                        <SelectTrigger data-testid="payslip-employee-select">
-                          <SelectValue placeholder="Select employee" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {employees.filter(e => e.role !== "admin" && e.basic_salary > 0).map((emp) => (
-                            <SelectItem key={emp.id} value={emp.id}>
-                              {emp.name} - ₹{emp.basic_salary?.toLocaleString()}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-gray-500">Only employees with salary set are shown</p>
+            <div className="mb-6">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Payroll</h1>
+              <p className="text-gray-500 mt-1">Manage salaries, deductions, and payslips</p>
+            </div>
+
+            {/* Sub-tab Navigation */}
+            <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit" data-testid="payroll-subtabs">
+              {[
+                { id: "dashboard", label: "Dashboard" },
+                { id: "deductions", label: "Deductions" },
+                { id: "process", label: "Process Payroll" },
+                { id: "payslips", label: "Payslips" }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  data-testid={`payroll-subtab-${tab.id}`}
+                  onClick={() => setPayrollSubTab(tab.id)}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                    payrollSubTab === tab.id
+                      ? "bg-white text-[#002FA7] shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sub-tab: Dashboard */}
+            {payrollSubTab === "dashboard" && (
+              <>
+                {/* YTD Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white border border-gray-200 rounded-lg p-5">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">YTD Gross Pay</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="ytd-gross">
+                      ₹{(payrollSummary?.ytd?.total_gross || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-lg p-5">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">YTD Deductions</p>
+                    <p className="text-2xl font-bold text-[#FF2E00] mt-1" data-testid="ytd-deductions">
+                      ₹{(payrollSummary?.ytd?.total_deductions || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-lg p-5">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">YTD Net Pay</p>
+                    <p className="text-2xl font-bold text-[#00C853] mt-1" data-testid="ytd-net">
+                      ₹{(payrollSummary?.ytd?.total_net || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-lg p-5">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Payslips</p>
+                    <p className="text-2xl font-bold text-[#002FA7] mt-1" data-testid="ytd-count">
+                      {payrollSummary?.ytd?.total_payslips || 0}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Monthly Breakdown */}
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+                  <div className="px-5 py-4 border-b border-gray-100">
+                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Monthly Breakdown — {payrollSummary?.year || new Date().getFullYear()}</h2>
+                  </div>
+                  {payrollSummary?.monthly?.length > 0 ? (
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="table-header">Month</th>
+                          <th className="table-header">Employees</th>
+                          <th className="table-header">Gross Pay</th>
+                          <th className="table-header">Deductions</th>
+                          <th className="table-header">Net Pay</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollSummary.monthly.map((m) => (
+                          <tr key={m.month} className="table-row">
+                            <td className="table-cell font-medium">{m.month_name} {m.year}</td>
+                            <td className="table-cell">{m.employee_count}</td>
+                            <td className="table-cell">₹{m.total_gross.toLocaleString()}</td>
+                            <td className="table-cell text-[#FF2E00]">-₹{m.total_deductions.toLocaleString()}</td>
+                            <td className="table-cell font-bold text-[#00C853]">₹{m.total_net.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="text-center py-10 text-gray-400">
+                      <CurrencyDollar className="h-10 w-10 mx-auto mb-2" weight="duotone" />
+                      <p className="text-sm">No payroll data for this year yet</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                  )}
+                </div>
+
+                {/* Department Breakdown */}
+                {payrollSummary?.departments?.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Department-wise Breakdown</h2>
+                    </div>
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="table-header">Department</th>
+                          <th className="table-header">Employees</th>
+                          <th className="table-header">Total Gross</th>
+                          <th className="table-header">Total Net</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollSummary.departments.map((d, i) => (
+                          <tr key={i} className="table-row">
+                            <td className="table-cell font-medium">{d.department}</td>
+                            <td className="table-cell">{d.employee_count}</td>
+                            <td className="table-cell">₹{d.total_gross.toLocaleString()}</td>
+                            <td className="table-cell font-bold text-[#00C853]">₹{d.total_net.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Recent Payroll Runs */}
+                {payrollSummary?.runs?.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Payroll Run History</h2>
+                    </div>
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="table-header">Period</th>
+                          <th className="table-header">Employees</th>
+                          <th className="table-header">Total Gross</th>
+                          <th className="table-header">Total Deductions</th>
+                          <th className="table-header">Total Net</th>
+                          <th className="table-header">Processed By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollSummary.runs.map((r) => (
+                          <tr key={r.id} className="table-row">
+                            <td className="table-cell font-medium">{r.month_name} {r.year}</td>
+                            <td className="table-cell">{r.total_employees}</td>
+                            <td className="table-cell">₹{parseFloat(r.total_gross || 0).toLocaleString()}</td>
+                            <td className="table-cell text-[#FF2E00]">-₹{parseFloat(r.total_deductions || 0).toLocaleString()}</td>
+                            <td className="table-cell font-bold text-[#00C853]">₹{parseFloat(r.total_net || 0).toLocaleString()}</td>
+                            <td className="table-cell text-sm text-gray-500">{r.processed_by}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Sub-tab: Deductions */}
+            {payrollSubTab === "deductions" && (
+              <>
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100">
+                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Employee Deductions (PF, ESI, TDS, etc.)</h2>
+                    <p className="text-xs text-gray-500 mt-1">Click "Manage" to add or remove custom deductions per employee</p>
+                  </div>
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className="table-header">Employee</th>
+                        <th className="table-header">Department</th>
+                        <th className="table-header">Basic Salary</th>
+                        <th className="table-header">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employees.filter(e => e.role !== "admin").length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="text-center py-8 text-gray-500">No employees found</td>
+                        </tr>
+                      ) : (
+                        employees.filter(e => e.role !== "admin").map((emp) => (
+                          <tr key={emp.id} className="table-row">
+                            <td className="table-cell">
+                              <div className="flex items-center gap-3">
+                                <Avatar url={emp.avatar_url} name={emp.name} />
+                                <div>
+                                  <p className="font-medium text-gray-900">{emp.name}</p>
+                                  <p className="text-xs text-gray-500">{emp.employee_code || "—"}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="table-cell">{emp.department || "—"}</td>
+                            <td className="table-cell">₹{(emp.basic_salary || 0).toLocaleString()}</td>
+                            <td className="table-cell">
+                              <Button
+                                data-testid={`manage-deductions-${emp.id}`}
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleLoadDeductions(emp)}
+                                className="gap-1 border-[#002FA7] text-[#002FA7] hover:bg-[#002FA7] hover:text-white"
+                              >
+                                <PencilSimple className="h-3.5 w-3.5" />
+                                Manage
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Deduction Management Dialog */}
+                <Dialog open={deductionDialogOpen} onOpenChange={setDeductionDialogOpen}>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle className="font-['Outfit'] flex items-center gap-2">
+                        <CurrencyDollar className="h-5 w-5 text-[#002FA7]" weight="duotone" />
+                        Deductions — {selectedDeductionEmp?.name}
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-2">
+                      {/* Existing Deductions */}
+                      {selectedEmpDeductions.length > 0 ? (
+                        <div className="space-y-2">
+                          {selectedEmpDeductions.map((ded) => (
+                            <div key={ded.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{ded.deduction_name}</p>
+                                <p className="text-xs text-gray-500">
+                                  {ded.is_percentage ? `${ded.percentage}% of salary` : `₹${parseFloat(ded.amount || 0).toLocaleString()}`}
+                                  {!ded.is_active && <span className="ml-2 text-orange-500">(Inactive)</span>}
+                                </p>
+                              </div>
+                              <Button
+                                data-testid={`delete-deduction-${ded.id}`}
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteDeduction(ded.id)}
+                                className="text-gray-400 hover:text-red-500 h-8 w-8 p-0"
+                              >
+                                <TrashSimple className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 text-center py-3">No custom deductions set</p>
+                      )}
+
+                      {/* Add New Deduction */}
+                      <div className="border-t pt-4 space-y-3">
+                        <p className="text-sm font-medium text-gray-700">Add Deduction</p>
+                        <Input
+                          data-testid="deduction-name-input"
+                          placeholder="e.g. PF, ESI, TDS"
+                          value={deductionForm.deduction_name}
+                          onChange={(e) => setDeductionForm({ ...deductionForm, deduction_name: e.target.value })}
+                        />
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={deductionForm.is_percentage}
+                              onChange={(e) => setDeductionForm({ ...deductionForm, is_percentage: e.target.checked })}
+                              className="rounded border-gray-300"
+                            />
+                            Percentage-based
+                          </label>
+                        </div>
+                        {deductionForm.is_percentage ? (
+                          <Input
+                            data-testid="deduction-percentage-input"
+                            type="number"
+                            placeholder="Percentage (e.g. 12)"
+                            value={deductionForm.percentage}
+                            onChange={(e) => setDeductionForm({ ...deductionForm, percentage: parseFloat(e.target.value) })}
+                          />
+                        ) : (
+                          <Input
+                            data-testid="deduction-amount-input"
+                            type="number"
+                            placeholder="Fixed amount (₹)"
+                            value={deductionForm.amount}
+                            onChange={(e) => setDeductionForm({ ...deductionForm, amount: parseFloat(e.target.value) })}
+                          />
+                        )}
+                        <Button
+                          data-testid="add-deduction-btn"
+                          onClick={handleAddDeduction}
+                          className="w-full bg-[#002FA7] text-white hover:bg-[#001F70] gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add Deduction
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </>
+            )}
+
+            {/* Sub-tab: Process Payroll */}
+            {payrollSubTab === "process" && (
+              <>
+                <div className="max-w-xl">
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit'] mb-1">Bulk Process Payroll</h2>
+                    <p className="text-sm text-gray-500 mb-5">Generate payslips for all eligible employees (salary &gt; 0). Existing payslips for the selected period will be skipped.</p>
+                    <div className="grid grid-cols-2 gap-4 mb-5">
                       <div className="space-y-2">
                         <Label>Month</Label>
                         <Select
-                          value={payslipForm.month.toString()}
-                          onValueChange={(value) => setPayslipForm({ ...payslipForm, month: parseInt(value) })}
+                          value={bulkMonth.toString()}
+                          onValueChange={(v) => setBulkMonth(parseInt(v))}
                         >
-                          <SelectTrigger data-testid="payslip-month-select">
+                          <SelectTrigger data-testid="bulk-month-select">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1116,74 +1470,328 @@ export default function AdminDashboard() {
                       <div className="space-y-2">
                         <Label>Year</Label>
                         <Input
-                          data-testid="payslip-year-input"
+                          data-testid="bulk-year-input"
                           type="number"
-                          value={payslipForm.year}
-                          onChange={(e) => setPayslipForm({ ...payslipForm, year: parseInt(e.target.value) })}
+                          value={bulkYear}
+                          onChange={(e) => setBulkYear(parseInt(e.target.value))}
                         />
                       </div>
                     </div>
                     <Button
-                      data-testid="submit-generate-payslip"
-                      onClick={handleGeneratePayslip}
-                      disabled={loading}
-                      className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                      data-testid="process-payroll-btn"
+                      onClick={handleBulkProcess}
+                      disabled={bulkProcessing}
+                      className="w-full bg-[#002FA7] text-white hover:bg-[#001F70] gap-2"
                     >
-                      Generate Payslip
+                      {bulkProcessing ? (
+                        <ClockClockwise className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CurrencyDollar className="h-4 w-4" weight="bold" />
+                      )}
+                      {bulkProcessing ? "Processing..." : "Process Payroll"}
                     </Button>
                   </div>
-                </DialogContent>
-              </Dialog>
+
+                  <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-4">
+                    <p className="text-sm text-blue-800 font-medium mb-1">How it works</p>
+                    <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                      <li>Generates payslips for all employees with a salary set</li>
+                      <li>Automatically applies custom deductions (PF, ESI, etc.)</li>
+                      <li>Calculates LOP and half-day deductions from approved leaves</li>
+                      <li>Skips employees who already have a payslip for the period</li>
+                    </ul>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Sub-tab: Payslips */}
+            {payrollSubTab === "payslips" && (
+              <>
+                <div className="mb-5 flex items-center justify-between">
+                  <p className="text-sm text-gray-500">Generate individual payslips or view all generated payslips</p>
+                  <Dialog open={generatePayslipOpen} onOpenChange={setGeneratePayslipOpen}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="generate-payslip-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
+                        <Receipt className="h-4 w-4" weight="bold" />
+                        Generate Payslip
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle className="font-['Outfit']">Generate Payslip</DialogTitle>
+                      </DialogHeader>
+                      <p className="text-sm text-gray-500 -mt-2">Select employee and pay period to generate payslip.</p>
+                      <div className="space-y-4 pt-4">
+                        <div className="space-y-2">
+                          <Label>Employee</Label>
+                          <Select
+                            value={payslipForm.employee_id}
+                            onValueChange={(value) => setPayslipForm({ ...payslipForm, employee_id: value })}
+                          >
+                            <SelectTrigger data-testid="payslip-employee-select">
+                              <SelectValue placeholder="Select employee" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {employees.filter(e => e.role !== "admin" && e.basic_salary > 0).map((emp) => (
+                                <SelectItem key={emp.id} value={emp.id}>
+                                  {emp.name} - ₹{emp.basic_salary?.toLocaleString()}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-gray-500">Only employees with salary set are shown</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Month</Label>
+                            <Select
+                              value={payslipForm.month.toString()}
+                              onValueChange={(value) => setPayslipForm({ ...payslipForm, month: parseInt(value) })}
+                            >
+                              <SelectTrigger data-testid="payslip-month-select">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {months.map((m) => (
+                                  <SelectItem key={m.value} value={m.value.toString()}>{m.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Year</Label>
+                            <Input
+                              data-testid="payslip-year-input"
+                              type="number"
+                              value={payslipForm.year}
+                              onChange={(e) => setPayslipForm({ ...payslipForm, year: parseInt(e.target.value) })}
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          data-testid="submit-generate-payslip"
+                          onClick={handleGeneratePayslip}
+                          disabled={loading}
+                          className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                        >
+                          Generate Payslip
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className="table-header">Employee</th>
+                        <th className="table-header">Pay Period</th>
+                        <th className="table-header">Basic Salary</th>
+                        <th className="table-header">Deductions</th>
+                        <th className="table-header">Net Pay</th>
+                        <th className="table-header">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payslips.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="text-center py-8 text-gray-500">No payslips generated yet</td>
+                        </tr>
+                      ) : (
+                        payslips.map((ps) => (
+                          <tr key={ps.id} className="table-row">
+                            <td className="table-cell">
+                              <p className="font-medium text-gray-900">{ps.employee_name}</p>
+                              <p className="text-xs text-gray-500">{ps.employee_email}</p>
+                            </td>
+                            <td className="table-cell">{ps.month_name} {ps.year}</td>
+                            <td className="table-cell">₹{ps.basic_salary?.toLocaleString()}</td>
+                            <td className="table-cell text-[#FF2E00]">-₹{ps.total_deductions?.toLocaleString()}</td>
+                            <td className="table-cell font-bold text-[#00C853]">₹{ps.net_pay?.toLocaleString()}</td>
+                            <td className="table-cell">
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  data-testid={`download-payslip-${ps.id}`}
+                                  size="sm"
+                                  onClick={() => handleDownloadPayslip(ps.id)}
+                                  className="bg-[#002FA7] hover:bg-[#001F70] text-white gap-1"
+                                >
+                                  <DownloadSimple className="h-4 w-4" />
+                                  PDF
+                                </Button>
+                                <Button
+                                  data-testid={`delete-payslip-${ps.id}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeletePayslip(ps.id)}
+                                  className="text-gray-500 hover:text-red-500"
+                                >
+                                  <Trash className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* Change Requests Tab */}
+        {activeTab === "change-requests" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Change Requests</h1>
+              <p className="text-gray-500 mt-1">Review and approve work/installation requests (2-step approval)</p>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
+            {/* Summary cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <p className="text-xs font-medium text-gray-500 uppercase">Pending</p>
+                <p className="text-2xl font-bold text-orange-500 mt-1">{changeRequests.filter(c => c.status === "pending").length}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <p className="text-xs font-medium text-gray-500 uppercase">Manager Approved</p>
+                <p className="text-2xl font-bold text-blue-500 mt-1">{changeRequests.filter(c => c.status === "manager_approved").length}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <p className="text-xs font-medium text-gray-500 uppercase">Approved</p>
+                <p className="text-2xl font-bold text-[#00C853] mt-1">{changeRequests.filter(c => c.status === "approved").length}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <p className="text-xs font-medium text-gray-500 uppercase">Rejected</p>
+                <p className="text-2xl font-bold text-[#FF2E00] mt-1">{changeRequests.filter(c => c.status === "rejected").length}</p>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               <table className="w-full">
                 <thead>
                   <tr>
-                    <th className="table-header">Employee</th>
-                    <th className="table-header">Pay Period</th>
-                    <th className="table-header">Basic Salary</th>
-                    <th className="table-header">Deductions</th>
-                    <th className="table-header">Net Pay</th>
+                    <th className="table-header">Requester</th>
+                    <th className="table-header">Title</th>
+                    <th className="table-header">Type</th>
+                    <th className="table-header">Priority</th>
+                    <th className="table-header">Manager</th>
+                    <th className="table-header">Admin</th>
+                    <th className="table-header">Status</th>
                     <th className="table-header">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payslips.length === 0 ? (
+                  {changeRequests.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-8 text-gray-500">No payslips generated yet</td>
+                      <td colSpan="8" className="text-center py-8 text-gray-500">No change requests</td>
                     </tr>
                   ) : (
-                    payslips.map((ps) => (
-                      <tr key={ps.id} className="table-row">
+                    changeRequests.map((cr) => (
+                      <tr key={cr.id} className="table-row">
                         <td className="table-cell">
-                          <p className="font-medium text-gray-900">{ps.employee_name}</p>
-                          <p className="text-xs text-gray-500">{ps.employee_email}</p>
+                          <p className="font-medium text-gray-900">{cr.requester_name}</p>
+                          <p className="text-xs text-gray-500">{cr.created_at ? format(new Date(cr.created_at), "MMM d, yyyy") : ""}</p>
                         </td>
-                        <td className="table-cell">{ps.month_name} {ps.year}</td>
-                        <td className="table-cell">₹{ps.basic_salary?.toLocaleString()}</td>
-                        <td className="table-cell text-[#FF2E00]">-₹{ps.total_deductions?.toLocaleString()}</td>
-                        <td className="table-cell font-bold text-[#00C853]">₹{ps.net_pay?.toLocaleString()}</td>
                         <td className="table-cell">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              data-testid={`download-payslip-${ps.id}`}
-                              size="sm"
-                              onClick={() => handleDownloadPayslip(ps.id)}
-                              className="bg-[#002FA7] hover:bg-[#001F70] text-white gap-1"
-                            >
-                              <DownloadSimple className="h-4 w-4" />
-                              PDF
-                            </Button>
-                            <Button
-                              data-testid={`delete-payslip-${ps.id}`}
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeletePayslip(ps.id)}
-                              className="text-gray-500 hover:text-red-500"
-                            >
-                              <Trash className="h-4 w-4" />
-                            </Button>
+                          <p className="font-medium text-gray-900 text-sm">{cr.title}</p>
+                          <p className="text-xs text-gray-500 line-clamp-1">{cr.description}</p>
+                        </td>
+                        <td className="table-cell">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{cr.cr_type}</span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            cr.priority === "high" ? "bg-red-50 text-red-600" :
+                            cr.priority === "low" ? "bg-green-50 text-green-600" :
+                            "bg-yellow-50 text-yellow-600"
+                          }`}>{cr.priority}</span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs font-medium ${
+                            cr.manager_approval === "approved" ? "text-[#00C853]" :
+                            cr.manager_approval === "rejected" ? "text-[#FF2E00]" :
+                            "text-gray-400"
+                          }`}>
+                            {cr.manager_approval === "approved" ? `Approved${cr.manager_name ? ` (${cr.manager_name})` : ""}` :
+                             cr.manager_approval === "rejected" ? "Rejected" : "Pending"}
+                          </span>
+                          {cr.manager_notes && <p className="text-xs text-gray-400 mt-0.5">{cr.manager_notes}</p>}
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs font-medium ${
+                            cr.admin_approval === "approved" ? "text-[#00C853]" :
+                            cr.admin_approval === "rejected" ? "text-[#FF2E00]" :
+                            "text-gray-400"
+                          }`}>
+                            {cr.admin_approval === "approved" ? `Approved${cr.admin_name ? ` (${cr.admin_name})` : ""}` :
+                             cr.admin_approval === "rejected" ? "Rejected" : "Pending"}
+                          </span>
+                          {cr.admin_notes && <p className="text-xs text-gray-400 mt-0.5">{cr.admin_notes}</p>}
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            cr.status === "approved" ? "bg-green-50 text-[#00C853]" :
+                            cr.status === "rejected" ? "bg-red-50 text-[#FF2E00]" :
+                            cr.status === "manager_approved" ? "bg-blue-50 text-blue-600" :
+                            "bg-orange-50 text-orange-500"
+                          }`}>
+                            {cr.status === "manager_approved" ? "Awaiting Admin" : cr.status}
+                          </span>
+                        </td>
+                        <td className="table-cell">
+                          <div className="flex flex-col gap-1">
+                            {/* Manager can approve pending CRs */}
+                            {cr.manager_approval === "pending" && (
+                              <div className="flex gap-1">
+                                <Button
+                                  data-testid={`cr-mgr-approve-${cr.id}`}
+                                  size="sm"
+                                  onClick={() => handleCRAction(cr.id, "manager", "approve")}
+                                  className="bg-[#00C853] hover:bg-green-600 text-white h-7 text-xs px-2"
+                                >
+                                  <Check className="h-3 w-3 mr-1" /> Mgr
+                                </Button>
+                                <Button
+                                  data-testid={`cr-mgr-reject-${cr.id}`}
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleCRAction(cr.id, "manager", "reject")}
+                                  className="text-red-500 hover:text-red-700 h-7 text-xs px-2"
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                            {/* Admin can approve manager-approved CRs */}
+                            {isAdmin && cr.manager_approval === "approved" && cr.admin_approval === "pending" && (
+                              <div className="flex gap-1">
+                                <Button
+                                  data-testid={`cr-admin-approve-${cr.id}`}
+                                  size="sm"
+                                  onClick={() => handleCRAction(cr.id, "admin", "approve")}
+                                  className="bg-[#002FA7] hover:bg-[#001F70] text-white h-7 text-xs px-2"
+                                >
+                                  <Check className="h-3 w-3 mr-1" /> Admin
+                                </Button>
+                                <Button
+                                  data-testid={`cr-admin-reject-${cr.id}`}
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleCRAction(cr.id, "admin", "reject")}
+                                  className="text-red-500 hover:text-red-700 h-7 text-xs px-2"
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                            {(cr.status === "approved" || cr.status === "rejected") && (
+                              <span className="text-xs text-gray-400">Done</span>
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -159,14 +159,15 @@ reports_router = APIRouter(prefix="/reports")
 holidays_router = APIRouter(prefix="/holidays")
 policy_router = APIRouter(prefix="/policy")
 wfh_router = APIRouter(prefix="/wfh")
+cr_router = APIRouter(prefix="/cr")
 
 # Constants
-REQUIRED_WORK_HOURS = 7.5
+REQUIRED_WORK_HOURS = 8
 TOTAL_WORK_HOURS = 8.5
 MONTHLY_PERMISSION_HOURS = 2
 MAX_PERMISSION_PER_USE = 1
 SHORT_DAYS_FOR_HALF_LEAVE = 3
-MAX_BREAK_MINUTES = 30
+MAX_BREAK_MINUTES = 40
 WORKING_DAYS_PER_MONTH = 22
 
 # Holiday List
@@ -249,6 +250,18 @@ class PayslipGenerate(BaseModel):
     month: int
     year: int
 
+class BulkPayrollGenerate(BaseModel):
+    month: int
+    year: int
+
+class CustomDeductionCreate(BaseModel):
+    user_id: int
+    deduction_name: str
+    amount: float = 0
+    is_percentage: bool = False
+    percentage: float = 0
+    is_active: bool = True
+
 class ShiftAssign(BaseModel):
     shift: str
 
@@ -272,6 +285,18 @@ class PolicyUpdate(BaseModel):
     content: Optional[str] = None
     icon: Optional[str] = None
     sort_order: Optional[int] = None
+
+class CRCreate(BaseModel):
+    title: str
+    description: str
+    cr_type: str = "General"
+    priority: str = "medium"
+
+class CRUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    cr_type: Optional[str] = None
+    priority: Optional[str] = None
 
 # ============== AUTH ROUTES ==============
 
@@ -1379,6 +1404,20 @@ async def generate_payslip(data: PayslipGenerate, request: Request):
         deductions.append({"description": f"Loss of Pay ({lop_days} days)", "amount": round(lop_amount, 2)})
         total_deductions += lop_amount
 
+    # Custom deductions (PF, ESI, TDS, etc.)
+    custom_deds = await execute_query(
+        "SELECT * FROM custom_deductions WHERE user_id = %s AND is_active = 1",
+        (int(data.employee_id),), fetch_all=True
+    )
+    for cd in (custom_deds or []):
+        if cd.get("is_percentage") and cd.get("percentage", 0) > 0:
+            ded_amount = round(basic_salary * cd["percentage"] / 100, 2)
+        else:
+            ded_amount = cd.get("amount", 0)
+        if ded_amount > 0:
+            deductions.append({"description": cd["deduction_name"], "amount": round(ded_amount, 2)})
+            total_deductions += ded_amount
+
     month_names = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     net_pay = basic_salary - total_deductions
 
@@ -1688,6 +1727,378 @@ async def review_wfh_request(wfh_id: str, request: Request, action: str):
     )
     return {"message": f"WFH request {new_status}"}
 
+# ============== PAYROLL ROUTES ==============
+
+# Custom Deductions CRUD
+@admin_router.get("/deductions/{employee_id}")
+async def get_employee_deductions(employee_id: str, request: Request):
+    await require_admin_or_manager(request)
+    rows = await execute_query(
+        "SELECT * FROM custom_deductions WHERE user_id = %s ORDER BY deduction_name",
+        (int(employee_id),), fetch_all=True
+    )
+    result = []
+    for r in (rows or []):
+        d = dict(r)
+        d["id"] = str(d.pop("id"))
+        d["user_id"] = str(d["user_id"])
+        d["is_percentage"] = bool(d.get("is_percentage", 0))
+        d["is_active"] = bool(d.get("is_active", 1))
+        result.append(d)
+    return result
+
+@admin_router.post("/deductions")
+async def add_custom_deduction(data: CustomDeductionCreate, request: Request):
+    await require_admin(request)
+    ded_id = await execute_query(
+        """INSERT INTO custom_deductions (user_id, deduction_name, amount, is_percentage, percentage, is_active, created_at)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (data.user_id, data.deduction_name, data.amount, 1 if data.is_percentage else 0,
+         data.percentage, 1 if data.is_active else 0, datetime.now(timezone.utc).isoformat()),
+        last_id=True
+    )
+    return {"id": str(ded_id), "user_id": str(data.user_id), "deduction_name": data.deduction_name,
+            "amount": data.amount, "is_percentage": data.is_percentage, "percentage": data.percentage, "is_active": data.is_active}
+
+@admin_router.delete("/deductions/{deduction_id}")
+async def delete_custom_deduction(deduction_id: str, request: Request):
+    await require_admin(request)
+    await execute_query("DELETE FROM custom_deductions WHERE id = %s", (int(deduction_id),))
+    return {"message": "Deduction deleted"}
+
+@admin_router.put("/deductions/{deduction_id}/toggle")
+async def toggle_deduction(deduction_id: str, request: Request):
+    await require_admin(request)
+    ded = await execute_query("SELECT is_active FROM custom_deductions WHERE id = %s", (int(deduction_id),), fetch_one=True)
+    if not ded:
+        raise HTTPException(status_code=404, detail="Deduction not found")
+    new_status = 0 if ded["is_active"] else 1
+    await execute_query("UPDATE custom_deductions SET is_active = %s WHERE id = %s", (new_status, int(deduction_id)))
+    return {"is_active": bool(new_status)}
+
+# Bulk Payroll Processing
+@admin_router.post("/payroll/process")
+async def process_bulk_payroll(data: BulkPayrollGenerate, request: Request):
+    admin = await require_admin(request)
+    employees = await execute_query(
+        "SELECT * FROM users WHERE role != 'admin' AND basic_salary > 0", fetch_all=True
+    )
+    if not employees:
+        raise HTTPException(status_code=400, detail="No employees with salary set")
+
+    month_names = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    results = {"generated": 0, "skipped": 0, "errors": [], "total_gross": 0, "total_deductions": 0, "total_net": 0}
+
+    for employee in employees:
+        try:
+            existing = await execute_query("SELECT id FROM payslips WHERE employee_id = %s AND month = %s AND year = %s",
+                (employee["id"], data.month, data.year), fetch_one=True)
+            if existing:
+                results["skipped"] += 1
+                continue
+
+            basic_salary = employee.get("basic_salary", 0) or 0
+            deductions = []
+            total_deductions = 0
+            month_start = datetime(data.year, data.month, 1, tzinfo=timezone.utc)
+            month_end = datetime(data.year + 1, 1, 1, tzinfo=timezone.utc) if data.month == 12 else datetime(data.year, data.month + 1, 1, tzinfo=timezone.utc)
+            per_day_salary = basic_salary / WORKING_DAYS_PER_MONTH
+            half_day_salary = per_day_salary / 2
+
+            # Half-day deductions
+            leave_deds = await execute_query(
+                "SELECT amount FROM leave_deductions WHERE user_id = %s AND date >= %s AND date < %s",
+                (employee["id"], month_start.isoformat(), month_end.isoformat()), fetch_all=True
+            )
+            half_day_amount = sum(d.get("amount", 0) for d in (leave_deds or []))
+            if half_day_amount > 0:
+                amount = half_day_amount * half_day_salary
+                deductions.append({"description": f"Half-day deduction ({half_day_amount} days)", "amount": round(amount, 2)})
+                total_deductions += amount
+
+            # LOP deductions
+            lop_leaves = await execute_query(
+                "SELECT days FROM leave_requests WHERE user_id = %s AND status = 'approved' AND leave_type = 'loss_of_pay' AND start_date >= %s AND start_date < %s",
+                (employee["id"], month_start.strftime("%Y-%m-%d"), month_end.strftime("%Y-%m-%d")), fetch_all=True
+            )
+            lop_days = sum(leave.get("days", 0) for leave in (lop_leaves or []))
+            if lop_days > 0:
+                lop_amount = lop_days * per_day_salary
+                deductions.append({"description": f"Loss of Pay ({lop_days} days)", "amount": round(lop_amount, 2)})
+                total_deductions += lop_amount
+
+            # Custom deductions (PF, ESI, TDS, etc.)
+            custom_deds = await execute_query(
+                "SELECT * FROM custom_deductions WHERE user_id = %s AND is_active = 1",
+                (employee["id"],), fetch_all=True
+            )
+            for cd in (custom_deds or []):
+                if cd.get("is_percentage") and cd.get("percentage", 0) > 0:
+                    ded_amount = round(basic_salary * cd["percentage"] / 100, 2)
+                else:
+                    ded_amount = cd.get("amount", 0)
+                if ded_amount > 0:
+                    deductions.append({"description": cd["deduction_name"], "amount": round(ded_amount, 2)})
+                    total_deductions += ded_amount
+
+            net_pay = basic_salary - total_deductions
+
+            await execute_query(
+                """INSERT INTO payslips (employee_id, employee_name, employee_email, department, position, month, year, month_name, basic_salary, deduction_details, total_deductions, net_pay, generated_by, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (employee["id"], employee["name"], employee.get("email", ""), employee.get("department", ""),
+                 employee.get("position", ""), data.month, data.year, month_names[data.month],
+                 basic_salary, json.dumps(deductions), round(total_deductions, 2), round(net_pay, 2),
+                 admin["name"], datetime.now(timezone.utc).isoformat()),
+                last_id=True
+            )
+            results["generated"] += 1
+            results["total_gross"] += basic_salary
+            results["total_deductions"] += total_deductions
+            results["total_net"] += net_pay
+        except Exception as e:
+            results["errors"].append(f"{employee['name']}: {str(e)}")
+
+    # Save payroll run
+    try:
+        await execute_query(
+            """INSERT INTO payroll_runs (month, year, total_employees, total_gross, total_deductions, total_net, processed_by, processed_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+               ON DUPLICATE KEY UPDATE total_employees=%s, total_gross=%s, total_deductions=%s, total_net=%s, processed_by=%s, processed_at=%s""",
+            (data.month, data.year, results["generated"], round(results["total_gross"], 2), round(results["total_deductions"], 2), round(results["total_net"], 2), admin["name"], datetime.now(timezone.utc).isoformat(),
+             results["generated"], round(results["total_gross"], 2), round(results["total_deductions"], 2), round(results["total_net"], 2), admin["name"], datetime.now(timezone.utc).isoformat())
+        )
+    except Exception:
+        pass
+
+    return results
+
+# Also update single payslip generation to include custom deductions
+# Payroll Analytics
+@admin_router.get("/payroll/summary")
+async def payroll_summary(request: Request, year: Optional[int] = None):
+    await require_admin_or_manager(request)
+    if not year:
+        year = datetime.now(timezone.utc).year
+
+    # Monthly summary
+    monthly = await execute_query(
+        "SELECT month, year, SUM(basic_salary) as total_gross, SUM(total_deductions) as total_ded, SUM(net_pay) as total_net, COUNT(*) as emp_count FROM payslips WHERE year = %s GROUP BY month, year ORDER BY month",
+        (year,), fetch_all=True
+    )
+
+    # Department breakdown
+    dept = await execute_query(
+        "SELECT department, SUM(basic_salary) as total_gross, SUM(net_pay) as total_net, COUNT(*) as emp_count FROM payslips WHERE year = %s GROUP BY department ORDER BY total_gross DESC",
+        (year,), fetch_all=True
+    )
+
+    # YTD totals
+    ytd = await execute_query(
+        "SELECT SUM(basic_salary) as total_gross, SUM(total_deductions) as total_ded, SUM(net_pay) as total_net, COUNT(*) as total_payslips FROM payslips WHERE year = %s",
+        (year,), fetch_one=True
+    )
+
+    # Payroll runs
+    runs = await execute_query(
+        "SELECT * FROM payroll_runs WHERE year = %s ORDER BY month DESC",
+        (year,), fetch_all=True
+    )
+
+    month_names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    monthly_data = []
+    for m in (monthly or []):
+        monthly_data.append({
+            "month": m["month"], "month_name": month_names[m["month"]], "year": m["year"],
+            "total_gross": float(m["total_gross"] or 0), "total_deductions": float(m["total_ded"] or 0),
+            "total_net": float(m["total_net"] or 0), "employee_count": m["emp_count"]
+        })
+
+    dept_data = []
+    for d in (dept or []):
+        dept_data.append({
+            "department": d["department"] or "Unassigned",
+            "total_gross": float(d["total_gross"] or 0), "total_net": float(d["total_net"] or 0),
+            "employee_count": d["emp_count"]
+        })
+
+    runs_data = []
+    for r in (runs or []):
+        rd = dict(r)
+        rd["id"] = str(rd.pop("id"))
+        rd["month_name"] = month_names[rd["month"]]
+        runs_data.append(rd)
+
+    return {
+        "year": year,
+        "monthly": monthly_data,
+        "departments": dept_data,
+        "ytd": {
+            "total_gross": float(ytd["total_gross"] or 0) if ytd else 0,
+            "total_deductions": float(ytd["total_ded"] or 0) if ytd else 0,
+            "total_net": float(ytd["total_net"] or 0) if ytd else 0,
+            "total_payslips": ytd["total_payslips"] if ytd else 0
+        },
+        "runs": runs_data
+    }
+
+# Employee salary structure view
+@payslip_router.get("/my-salary-structure")
+async def get_my_salary_structure(request: Request):
+    user = await get_current_user(request)
+    basic_salary = user.get("basic_salary", 0) or 0
+    basic = round(basic_salary * 0.50, 2)
+    hra = round(basic_salary * 0.20, 2)
+    medical = round(basic_salary * 0.045, 2)
+    conveyance = round(basic_salary * 0.06, 2)
+    special = round(basic_salary - basic - hra - medical - conveyance, 2)
+
+    # Get custom deductions
+    custom_deds = await execute_query(
+        "SELECT * FROM custom_deductions WHERE user_id = %s AND is_active = 1",
+        (user["id"],), fetch_all=True
+    )
+    deductions = []
+    total_deductions = 0
+    for cd in (custom_deds or []):
+        if cd.get("is_percentage") and cd.get("percentage", 0) > 0:
+            ded_amount = round(basic_salary * cd["percentage"] / 100, 2)
+        else:
+            ded_amount = cd.get("amount", 0)
+        deductions.append({"name": cd["deduction_name"], "amount": round(ded_amount, 2), "is_percentage": bool(cd.get("is_percentage", 0)), "percentage": cd.get("percentage", 0)})
+        total_deductions += ded_amount
+
+    return {
+        "gross_salary": basic_salary,
+        "earnings": [
+            {"name": "Basic", "amount": basic, "percentage": 50},
+            {"name": "House Rent Allowance", "amount": hra, "percentage": 20},
+            {"name": "Medical Allowance", "amount": medical, "percentage": 4.5},
+            {"name": "Conveyance Allowance", "amount": conveyance, "percentage": 6},
+            {"name": "Special Allowance", "amount": special, "percentage": 19.5},
+        ],
+        "deductions": deductions,
+        "total_deductions": round(total_deductions, 2),
+        "net_salary": round(basic_salary - total_deductions, 2)
+    }
+
+# ============== CHANGE REQUEST ROUTES ==============
+
+CR_TYPES = ["Installation", "Maintenance", "Software", "Hardware", "Access", "Policy Change", "General", "Other"]
+
+@cr_router.post("/create")
+async def create_cr(data: CRCreate, request: Request):
+    user = await get_current_user(request)
+    now = datetime.now(timezone.utc).isoformat()
+    cr_id = await execute_query(
+        """INSERT INTO change_requests (requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, created_at, updated_at)
+           VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s)""",
+        (user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, now, now),
+        last_id=True
+    )
+    return {"id": str(cr_id), "title": data.title, "status": "pending", "message": "Change request created"}
+
+@cr_router.get("/my-requests")
+async def get_my_crs(request: Request):
+    user = await get_current_user(request)
+    crs = await execute_query(
+        "SELECT * FROM change_requests WHERE requester_id = %s ORDER BY created_at DESC",
+        (user["id"],), fetch_all=True
+    )
+    result = []
+    for cr in (crs or []):
+        d = dict(cr)
+        d["id"] = str(d.pop("id"))
+        d["requester_id"] = str(d["requester_id"])
+        if d.get("manager_id"): d["manager_id"] = str(d["manager_id"])
+        if d.get("admin_id"): d["admin_id"] = str(d["admin_id"])
+        result.append(d)
+    return result
+
+@cr_router.delete("/{cr_id}")
+async def delete_cr(cr_id: str, request: Request):
+    user = await get_current_user(request)
+    cr = await execute_query("SELECT * FROM change_requests WHERE id = %s", (int(cr_id),), fetch_one=True)
+    if not cr:
+        raise HTTPException(status_code=404, detail="CR not found")
+    if cr["requester_id"] != user["id"] and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if cr["status"] not in ("pending",):
+        raise HTTPException(status_code=400, detail="Can only delete pending CRs")
+    await execute_query("DELETE FROM change_requests WHERE id = %s", (int(cr_id),))
+    return {"message": "CR deleted"}
+
+@cr_router.get("/types")
+async def get_cr_types(request: Request):
+    await get_current_user(request)
+    return CR_TYPES
+
+# Admin/Manager: list all CRs
+@admin_router.get("/change-requests")
+async def get_all_crs(request: Request):
+    user = await require_admin_or_manager(request)
+    if user["role"] == "admin":
+        crs = await execute_query("SELECT * FROM change_requests ORDER BY created_at DESC", fetch_all=True)
+    else:
+        crs = await execute_query("SELECT * FROM change_requests WHERE status IN ('pending', 'manager_approved') ORDER BY created_at DESC", fetch_all=True)
+    result = []
+    for cr in (crs or []):
+        d = dict(cr)
+        d["id"] = str(d.pop("id"))
+        d["requester_id"] = str(d["requester_id"])
+        if d.get("manager_id"): d["manager_id"] = str(d["manager_id"])
+        if d.get("admin_id"): d["admin_id"] = str(d["admin_id"])
+        result.append(d)
+    return result
+
+# Manager approval (step 1)
+@admin_router.put("/change-requests/{cr_id}/manager-action")
+async def manager_action_cr(cr_id: str, request: Request, action: str = "approve", notes: str = ""):
+    user = await require_admin_or_manager(request)
+    cr = await execute_query("SELECT * FROM change_requests WHERE id = %s", (int(cr_id),), fetch_one=True)
+    if not cr:
+        raise HTTPException(status_code=404, detail="CR not found")
+    if cr["manager_approval"] != "pending":
+        raise HTTPException(status_code=400, detail="Manager already acted on this CR")
+
+    now = datetime.now(timezone.utc).isoformat()
+    if action == "approve":
+        new_status = "manager_approved"
+        mgr_approval = "approved"
+    else:
+        new_status = "rejected"
+        mgr_approval = "rejected"
+
+    await execute_query(
+        "UPDATE change_requests SET status = %s, manager_approval = %s, manager_id = %s, manager_name = %s, manager_notes = %s, manager_action_at = %s, updated_at = %s WHERE id = %s",
+        (new_status, mgr_approval, user["id"], user["name"], notes, now, now, int(cr_id))
+    )
+    return {"message": f"CR {action}d by manager", "status": new_status}
+
+# Admin approval (step 2)
+@admin_router.put("/change-requests/{cr_id}/admin-action")
+async def admin_action_cr(cr_id: str, request: Request, action: str = "approve", notes: str = ""):
+    admin = await require_admin(request)
+    cr = await execute_query("SELECT * FROM change_requests WHERE id = %s", (int(cr_id),), fetch_one=True)
+    if not cr:
+        raise HTTPException(status_code=404, detail="CR not found")
+    if cr["admin_approval"] != "pending":
+        raise HTTPException(status_code=400, detail="Admin already acted on this CR")
+
+    now = datetime.now(timezone.utc).isoformat()
+    if action == "approve":
+        new_status = "approved"
+        adm_approval = "approved"
+    else:
+        new_status = "rejected"
+        adm_approval = "rejected"
+
+    await execute_query(
+        "UPDATE change_requests SET status = %s, admin_approval = %s, admin_id = %s, admin_name = %s, admin_notes = %s, admin_action_at = %s, updated_at = %s WHERE id = %s",
+        (new_status, adm_approval, admin["id"], admin["name"], notes, now, now, int(cr_id))
+    )
+    return {"message": f"CR {action}d by admin", "status": new_status}
+
 # ============== INCLUDE ROUTERS ==============
 
 api_router.include_router(auth_router)
@@ -1701,6 +2112,7 @@ api_router.include_router(reports_router)
 api_router.include_router(holidays_router)
 api_router.include_router(policy_router)
 api_router.include_router(wfh_router)
+api_router.include_router(cr_router)
 
 @api_router.get("/")
 async def root():
@@ -1873,6 +2285,33 @@ async def init_database():
                 )
             """)
             await cur.execute("""
+                CREATE TABLE IF NOT EXISTS custom_deductions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    deduction_name VARCHAR(100) NOT NULL,
+                    amount FLOAT DEFAULT 0,
+                    is_percentage TINYINT DEFAULT 0,
+                    percentage FLOAT DEFAULT 0,
+                    is_active TINYINT DEFAULT 1,
+                    created_at VARCHAR(64),
+                    INDEX idx_user (user_id)
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS payroll_runs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    month INT NOT NULL,
+                    year INT NOT NULL,
+                    total_employees INT DEFAULT 0,
+                    total_gross FLOAT DEFAULT 0,
+                    total_deductions FLOAT DEFAULT 0,
+                    total_net FLOAT DEFAULT 0,
+                    processed_by VARCHAR(255),
+                    processed_at VARCHAR(64),
+                    UNIQUE KEY uk_month_year (month, year)
+                )
+            """)
+            await cur.execute("""
                 CREATE TABLE IF NOT EXISTS policies (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     title VARCHAR(255) NOT NULL,
@@ -1882,6 +2321,32 @@ async def init_database():
                     sort_order INT DEFAULT 0,
                     created_at VARCHAR(64),
                     updated_at VARCHAR(64)
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS change_requests (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    requester_id INT NOT NULL,
+                    requester_name VARCHAR(255),
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    cr_type VARCHAR(100) DEFAULT 'General',
+                    priority VARCHAR(20) DEFAULT 'medium',
+                    status VARCHAR(30) DEFAULT 'pending',
+                    manager_approval VARCHAR(20) DEFAULT 'pending',
+                    manager_id INT,
+                    manager_name VARCHAR(255),
+                    manager_notes TEXT,
+                    manager_action_at VARCHAR(64),
+                    admin_approval VARCHAR(20) DEFAULT 'pending',
+                    admin_id INT,
+                    admin_name VARCHAR(255),
+                    admin_notes TEXT,
+                    admin_action_at VARCHAR(64),
+                    created_at VARCHAR(64),
+                    updated_at VARCHAR(64),
+                    INDEX idx_requester (requester_id),
+                    INDEX idx_status (status)
                 )
             """)
 

@@ -14,7 +14,8 @@ import {
   SignOut, Clock, Coffee, CalendarBlank, TreePalm, Heartbeat, 
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
-  CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash
+  CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
+  GitPullRequest, Plus
 } from "@phosphor-icons/react";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
@@ -67,6 +68,11 @@ export default function EmployeeDashboard() {
   const [wfhDialogOpen, setWfhDialogOpen] = useState(false);
   const [wfhForm, setWfhForm] = useState({ date: null, reason: "" });
   const [monthlyLeaveUsage, setMonthlyLeaveUsage] = useState({ monthly_limit: 1.5, used: 0, remaining: 1.5 });
+  const [salaryStructure, setSalaryStructure] = useState(null);
+  const [myCRs, setMyCRs] = useState([]);
+  const [crDialogOpen, setCrDialogOpen] = useState(false);
+  const [crForm, setCrForm] = useState({ title: "", description: "", cr_type: "General", priority: "medium" });
+  const [crTypes, setCrTypes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -90,7 +96,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes, monthlyUsageRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes, monthlyUsageRes, salaryRes, crRes, crTypesRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -104,7 +110,10 @@ export default function EmployeeDashboard() {
         api.get("/policy/list"),
         api.get("/wfh/balance"),
         api.get("/wfh/my-requests"),
-        api.get("/leave/monthly-usage")
+        api.get("/leave/monthly-usage"),
+        api.get("/payslip/my-salary-structure"),
+        api.get("/cr/my-requests"),
+        api.get("/cr/types")
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -120,6 +129,9 @@ export default function EmployeeDashboard() {
       setWfhBalance(wfhBalRes.data);
       setWfhRequests(wfhReqRes.data);
       setMonthlyLeaveUsage(monthlyUsageRes.data);
+      setSalaryStructure(salaryRes.data);
+      setMyCRs(crRes.data);
+      setCrTypes(crTypesRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -186,7 +198,7 @@ export default function EmployeeDashboard() {
     try {
       const response = await api.post("/attendance/clock-out");
       const workingHours = response.data?.working_hours || 0;
-      if (workingHours < 7.5) {
+      if (workingHours < 8) {
         toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 7h 30m required)`);
       } else {
         toast.success("Clocked out successfully!");
@@ -346,6 +358,35 @@ export default function EmployeeDashboard() {
     }
   };
 
+  const handleSubmitCR = async () => {
+    if (!crForm.title || !crForm.description) {
+      toast.error("Title and description are required");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post("/cr/create", crForm);
+      toast.success("Change request submitted!");
+      setCrDialogOpen(false);
+      setCrForm({ title: "", description: "", cr_type: "General", priority: "medium" });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to submit CR");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteCR = async (crId) => {
+    try {
+      await api.delete(`/cr/${crId}`);
+      toast.success("CR deleted");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete CR");
+    }
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case "approved":
@@ -359,7 +400,7 @@ export default function EmployeeDashboard() {
 
   // Calculate current working hours
   const currentWorkingHours = elapsedTime / 3600;
-  const isShortDay = currentWorkingHours < 7.5 && attendanceStatus.clocked_in;
+  const isShortDay = currentWorkingHours < 8 && attendanceStatus.clocked_in;
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -393,6 +434,22 @@ export default function EmployeeDashboard() {
           >
             <Receipt className="h-5 w-5" weight="duotone" />
             <span>Payslips</span>
+          </button>
+          <button
+            data-testid="salary-tab"
+            onClick={() => setActiveTab("salary")}
+            className={activeTab === "salary" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <CurrencyDollar className="h-5 w-5" weight="duotone" />
+            <span>My Salary</span>
+          </button>
+          <button
+            data-testid="cr-tab"
+            onClick={() => setActiveTab("change-requests")}
+            className={activeTab === "change-requests" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <GitPullRequest className="h-5 w-5" weight="duotone" />
+            <span>Change Requests</span>
           </button>
           <button
             onClick={() => setActiveTab("summary")}
@@ -505,8 +562,8 @@ export default function EmployeeDashboard() {
                     {attendanceStatus.on_break ? "Break Duration" : attendanceStatus.clocked_in ? "Working Time" : "Not Clocked In"}
                   </p>
                   {attendanceStatus.clocked_in && !attendanceStatus.on_break && (
-                    <p className={`text-xs mt-1 ${currentWorkingHours >= 7.5 ? 'text-[#00C853]' : 'text-[#FF2E00]'}`}>
-                      {currentWorkingHours >= 7.5 ? "Minimum 7h 30m reached" : `Need ${formatHours(7.5 - currentWorkingHours)} more for minimum`}
+                    <p className={`text-xs mt-1 ${currentWorkingHours >= 8 ? 'text-[#00C853]' : 'text-[#FF2E00]'}`}>
+                      {currentWorkingHours >= 8 ? "Minimum 8h reached" : `Need ${formatHours(8 - currentWorkingHours)} more for minimum`}
                     </p>
                   )}
                 </div>
@@ -521,7 +578,7 @@ export default function EmployeeDashboard() {
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
                         className={`h-2 rounded-full transition-all ${
-                          currentWorkingHours >= 7.5 ? 'bg-[#00C853]' : 'bg-[#FFC107]'
+                          currentWorkingHours >= 8 ? 'bg-[#00C853]' : 'bg-[#FFC107]'
                         }`}
                         style={{ width: `${Math.min(100, currentWorkingHours / 8.5 * 100)}%` }}
                       ></div>
@@ -558,7 +615,7 @@ export default function EmployeeDashboard() {
                           <Coffee className="inline h-5 w-5 mr-2" weight="bold" />
                           {(attendanceStatus.remaining_break_minutes || 0) <= 0 
                             ? "Break Limit Reached" 
-                            : `Start Break (${attendanceStatus.remaining_break_minutes || 30} min left)`}
+                            : `Start Break (${attendanceStatus.remaining_break_minutes || 40} min left)`}
                         </button>
                       ) : (
                         <button
@@ -604,8 +661,8 @@ export default function EmployeeDashboard() {
                       )}
                       <div>
                         <p className="text-gray-500">Break Time</p>
-                        <p className={`font-medium ${(attendanceStatus.attendance.total_break_minutes || 0) >= 30 ? 'text-[#FF2E00]' : 'text-gray-900'}`}>
-                          {attendanceStatus.attendance.total_break_minutes || 0} / 30 min
+                        <p className={`font-medium ${(attendanceStatus.attendance.total_break_minutes || 0) >= 40 ? 'text-[#FF2E00]' : 'text-gray-900'}`}>
+                          {attendanceStatus.attendance.total_break_minutes || 0} / 40 min
                         </p>
                       </div>
                     </div>
@@ -976,7 +1033,7 @@ export default function EmployeeDashboard() {
                             <td className="table-cell">{record.clock_out ? format(new Date(record.clock_out), "h:mm a") : "—"}</td>
                             <td className="table-cell">{record.total_break_minutes || 0} min</td>
                             <td className="table-cell">
-                              <span className={record.working_hours && record.working_hours < 7.5 ? "text-[#FF2E00]" : ""}>
+                              <span className={record.working_hours && record.working_hours < 8 ? "text-[#FF2E00]" : ""}>
                                 {record.working_hours ? formatHours(record.working_hours) : "—"}
                               </span>
                             </td>
@@ -1098,7 +1155,7 @@ export default function EmployeeDashboard() {
                   <ul className="space-y-2 text-sm text-gray-600">
                     <li className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-[#002FA7]"></div>
-                      Daily break allowance: <strong>30 minutes</strong>
+                      Daily break allowance: <strong>40 minutes</strong> (Lunch & break)
                     </li>
                     <li className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-[#FFC107]"></div>
@@ -1193,6 +1250,293 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
             )}
+          </>
+        )}
+
+        {/* Salary Structure Tab */}
+        {activeTab === "salary" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">My Salary</h1>
+              <p className="text-gray-500 mt-1">View your salary structure and deductions</p>
+            </div>
+
+            {salaryStructure ? (
+              <div className="space-y-6">
+                {/* Gross Salary Card */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Salary Overview</h2>
+                    <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-[#002FA7] font-medium">Monthly</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Gross Salary</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="emp-gross-salary">
+                        ₹{salaryStructure.gross_salary?.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-[#FFEBE6] rounded-lg">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Deductions</p>
+                      <p className="text-2xl font-bold text-[#FF2E00] mt-1" data-testid="emp-total-deductions">
+                        -₹{salaryStructure.total_deductions?.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-[#E6FFEE] rounded-lg">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Net Salary</p>
+                      <p className="text-2xl font-bold text-[#00C853] mt-1" data-testid="emp-net-salary">
+                        ₹{salaryStructure.net_salary?.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Earnings Breakdown */}
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100">
+                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Earnings Breakdown</h2>
+                  </div>
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className="table-header">Component</th>
+                        <th className="table-header">Percentage</th>
+                        <th className="table-header text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {salaryStructure.earnings?.map((e, i) => (
+                        <tr key={i} className="table-row">
+                          <td className="table-cell font-medium text-gray-900">{e.name}</td>
+                          <td className="table-cell text-gray-500">{e.percentage}%</td>
+                          <td className="table-cell text-right font-medium">₹{e.amount?.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t-2 border-gray-200">
+                        <td className="table-cell font-bold text-gray-900">Total Earnings</td>
+                        <td className="table-cell">100%</td>
+                        <td className="table-cell text-right font-bold text-gray-900">₹{salaryStructure.gross_salary?.toLocaleString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Deductions */}
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100">
+                    <h2 className="text-base font-semibold text-gray-900 font-['Outfit']">Deductions</h2>
+                  </div>
+                  {salaryStructure.deductions?.length > 0 ? (
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="table-header">Component</th>
+                          <th className="table-header">Type</th>
+                          <th className="table-header text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salaryStructure.deductions.map((d, i) => (
+                          <tr key={i} className="table-row">
+                            <td className="table-cell font-medium text-gray-900">{d.name}</td>
+                            <td className="table-cell text-gray-500">{d.is_percentage ? `${d.percentage}% of salary` : "Fixed"}</td>
+                            <td className="table-cell text-right font-medium text-[#FF2E00]">-₹{d.amount?.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t-2 border-gray-200">
+                          <td className="table-cell font-bold text-gray-900" colSpan="2">Total Deductions</td>
+                          <td className="table-cell text-right font-bold text-[#FF2E00]">-₹{salaryStructure.total_deductions?.toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="text-center py-8 text-gray-400">
+                      <p className="text-sm">No custom deductions applied</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-gray-400">
+                <CurrencyDollar className="h-12 w-12 mx-auto mb-3" weight="duotone" />
+                <p className="font-medium">Salary not configured yet</p>
+                <p className="text-sm mt-1">Contact your admin to set up your salary structure</p>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Change Requests Tab */}
+        {activeTab === "change-requests" && (
+          <>
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Change Requests</h1>
+                <p className="text-gray-500 mt-1">Submit and track your work/installation requests</p>
+              </div>
+              <Dialog open={crDialogOpen} onOpenChange={setCrDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button data-testid="new-cr-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
+                    <Plus className="h-4 w-4" weight="bold" />
+                    New Request
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="font-['Outfit']">New Change Request</DialogTitle>
+                  </DialogHeader>
+                  <p className="text-sm text-gray-500 -mt-2">Submit a new work or installation request for approval.</p>
+                  <div className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                      <Label>Title</Label>
+                      <Input
+                        data-testid="cr-title-input"
+                        placeholder="e.g. Install software, Fix desk lamp"
+                        value={crForm.title}
+                        onChange={(e) => setCrForm({ ...crForm, title: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Description</Label>
+                      <Textarea
+                        data-testid="cr-description-input"
+                        placeholder="Describe the request in detail..."
+                        value={crForm.description}
+                        onChange={(e) => setCrForm({ ...crForm, description: e.target.value })}
+                        className="min-h-[100px]"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Type</Label>
+                        <Select value={crForm.cr_type} onValueChange={(v) => setCrForm({ ...crForm, cr_type: v })}>
+                          <SelectTrigger data-testid="cr-type-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {crTypes.map((t) => (
+                              <SelectItem key={t} value={t}>{t}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Priority</Label>
+                        <Select value={crForm.priority} onValueChange={(v) => setCrForm({ ...crForm, priority: v })}>
+                          <SelectTrigger data-testid="cr-priority-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <Button
+                      data-testid="submit-cr-btn"
+                      onClick={handleSubmitCR}
+                      disabled={loading}
+                      className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                    >
+                      Submit Request
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className="table-header">Title</th>
+                    <th className="table-header">Type</th>
+                    <th className="table-header">Priority</th>
+                    <th className="table-header">Manager</th>
+                    <th className="table-header">Admin</th>
+                    <th className="table-header">Status</th>
+                    <th className="table-header">Created</th>
+                    <th className="table-header">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myCRs.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" className="text-center py-8 text-gray-500">
+                        No change requests submitted yet
+                      </td>
+                    </tr>
+                  ) : (
+                    myCRs.map((cr) => (
+                      <tr key={cr.id} className="table-row">
+                        <td className="table-cell">
+                          <p className="font-medium text-gray-900 text-sm">{cr.title}</p>
+                          <p className="text-xs text-gray-500 line-clamp-1">{cr.description}</p>
+                        </td>
+                        <td className="table-cell">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{cr.cr_type}</span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            cr.priority === "high" ? "bg-red-50 text-red-600" :
+                            cr.priority === "low" ? "bg-green-50 text-green-600" :
+                            "bg-yellow-50 text-yellow-600"
+                          }`}>{cr.priority}</span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs font-medium ${
+                            cr.manager_approval === "approved" ? "text-[#00C853]" :
+                            cr.manager_approval === "rejected" ? "text-[#FF2E00]" :
+                            "text-gray-400"
+                          }`}>
+                            {cr.manager_approval === "approved" ? "Approved" :
+                             cr.manager_approval === "rejected" ? "Rejected" : "Pending"}
+                          </span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs font-medium ${
+                            cr.admin_approval === "approved" ? "text-[#00C853]" :
+                            cr.admin_approval === "rejected" ? "text-[#FF2E00]" :
+                            "text-gray-400"
+                          }`}>
+                            {cr.admin_approval === "approved" ? "Approved" :
+                             cr.admin_approval === "rejected" ? "Rejected" : "Pending"}
+                          </span>
+                        </td>
+                        <td className="table-cell">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            cr.status === "approved" ? "bg-green-50 text-[#00C853]" :
+                            cr.status === "rejected" ? "bg-red-50 text-[#FF2E00]" :
+                            cr.status === "manager_approved" ? "bg-blue-50 text-blue-600" :
+                            "bg-orange-50 text-orange-500"
+                          }`}>
+                            {cr.status === "manager_approved" ? "Awaiting Admin" : cr.status}
+                          </span>
+                        </td>
+                        <td className="table-cell text-xs text-gray-500">
+                          {cr.created_at ? format(new Date(cr.created_at), "MMM d, yyyy") : "—"}
+                        </td>
+                        <td className="table-cell">
+                          {cr.status === "pending" && (
+                            <Button
+                              data-testid={`delete-cr-${cr.id}`}
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteCR(cr.id)}
+                              className="text-gray-400 hover:text-red-500 h-8 w-8 p-0"
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
 
