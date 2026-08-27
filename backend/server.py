@@ -309,8 +309,8 @@ async def check_geofence(lat, lng, user_id):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     # Check if user has approved WFH for today
     wfh = await execute_query(
-        "SELECT id FROM wfh_requests WHERE employee_id = %s AND start_date <= %s AND end_date >= %s AND status = 'approved'",
-        (user_id, today, today), fetch_one=True
+        "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status = 'approved'",
+        (user_id, today), fetch_one=True
     )
     if wfh:
         return True, "WFH"
