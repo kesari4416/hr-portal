@@ -465,6 +465,64 @@ code {
   background-color: var(--nav-hover) !important;
 }
 
+/* gray-* overrides (used heavily in both dashboards) */
+.dark .text-gray-900 {
+  color: var(--text-primary) !important;
+}
+.dark .text-gray-800 {
+  color: var(--text-primary) !important;
+}
+.dark .text-gray-700 {
+  color: var(--text-secondary) !important;
+}
+.dark .text-gray-600 {
+  color: var(--text-muted) !important;
+}
+.dark .text-gray-500 {
+  color: var(--text-muted) !important;
+}
+.dark .text-gray-400 {
+  color: var(--text-subtle) !important;
+}
+.dark .text-gray-300 {
+  color: var(--text-subtle) !important;
+}
+.dark .bg-gray-50 {
+  background-color: var(--surface-elevated) !important;
+}
+.dark .bg-gray-100 {
+  background-color: var(--surface-elevated) !important;
+}
+.dark .bg-gray-200 {
+  background-color: var(--border-color) !important;
+}
+.dark .border-gray-100,
+.dark .border-gray-200 {
+  border-color: var(--border-color) !important;
+}
+.dark .border-gray-300 {
+  border-color: var(--border-color) !important;
+}
+.dark .divide-gray-100 > * + * {
+  border-color: var(--border-color) !important;
+}
+
+/* Brand blue text (#002FA7) is too dark on dark bg — lighten it */
+.dark .text-\[\#002FA7\] {
+  color: var(--brand-accent) !important;
+}
+.dark .border-\[\#002FA7\] {
+  border-color: var(--brand-primary) !important;
+}
+
+/* Hover states */
+.dark .hover\:bg-gray-50:hover {
+  background-color: var(--nav-hover) !important;
+}
+.dark .hover\:bg-gray-100:hover {
+  background-color: var(--surface-elevated) !important;
+}
+
 /* Input fields in dark mode */
 .dark input,
 .dark textarea,
@@ -486,6 +544,18 @@ code {
   color: var(--text-primary) !important;
 }
 
+/* Shadcn Select dropdown content */
+.dark [data-radix-select-viewport],
+.dark [role="listbox"],
+.dark [role="option"] {
+  background-color: var(--surface) !important;
+  color: var(--text-primary) !important;
+}
+.dark [role="option"]:hover,
+.dark [role="option"][data-highlighted] {
+  background-color: var(--nav-hover) !important;
+}
+
 /* Blue-50 icon containers */
 .dark .bg-blue-50 {
   background-color: rgba(79, 121, 232, 0.12) !important;
@@ -501,6 +571,44 @@ code {
 }
 .dark .bg-slate-100 {
   background-color: var(--surface-elevated) !important;
+}
+
+/* purple/indigo/violet for org tree swimlane */
+.dark .bg-blue-50\/60,
+.dark .bg-indigo-50\/60,
+.dark .bg-violet-50\/60,
+.dark .bg-purple-50\/60,
+.dark .bg-slate-50\/60,
+.dark .bg-gray-50\/60 {
+  background-color: var(--surface-elevated) !important;
+}
+.dark .border-blue-100,
+.dark .border-indigo-100,
+.dark .border-violet-100,
+.dark .border-purple-100,
+.dark .border-slate-100 {
+  border-color: var(--border-color) !important;
+}
+
+/* Text color on dark for commonly hardcoded card values */
+.dark .text-slate-300 {
+  color: var(--text-secondary) !important;
+}
+.dark .font-medium.text-gray-900,
+.dark .font-semibold.text-gray-900,
+.dark .font-bold.text-gray-900 {
+  color: var(--text-primary) !important;
+}
+
+/* Hardcoded light bg panels used in payslip/leave sections */
+.dark .bg-\[\#FFEBE6\] {
+  background-color: rgba(220, 38, 38, 0.12) !important;
+}
+.dark .bg-\[\#E6FFEE\] {
+  background-color: rgba(22, 163, 74, 0.12) !important;
+}
+.dark .bg-\[\#E5ECFF\] {
+  background-color: rgba(79, 121, 232, 0.12) !important;
 }
 
 /* leaflet */
