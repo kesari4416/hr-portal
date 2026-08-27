@@ -180,14 +180,33 @@ export default function EmployeeDashboard() {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getLocation = () => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation is not supported by your browser"));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        (err) => {
+          if (err.code === 1) reject(new Error("Location permission denied. Please enable GPS to continue."));
+          else if (err.code === 2) reject(new Error("Location unavailable. Please check your GPS settings."));
+          else reject(new Error("Location request timed out. Please try again."));
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  };
+
   const handleClockIn = async () => {
     setLoading(true);
     try {
-      await api.post("/attendance/clock-in");
+      const location = await getLocation();
+      await api.post("/attendance/clock-in", location);
       toast.success("Clocked in successfully!");
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to clock in");
+      toast.error(error.response?.data?.detail || error.message || "Failed to clock in");
     } finally {
       setLoading(false);
     }
@@ -196,16 +215,17 @@ export default function EmployeeDashboard() {
   const handleClockOut = async () => {
     setLoading(true);
     try {
-      const response = await api.post("/attendance/clock-out");
+      const location = await getLocation();
+      const response = await api.post("/attendance/clock-out", location);
       const workingHours = response.data?.working_hours || 0;
       if (workingHours < 8) {
-        toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 7h 30m required)`);
+        toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 8h required)`);
       } else {
         toast.success("Clocked out successfully!");
       }
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to clock out");
+      toast.error(error.response?.data?.detail || error.message || "Failed to clock out");
     } finally {
       setLoading(false);
     }
@@ -214,11 +234,12 @@ export default function EmployeeDashboard() {
   const handleStartBreak = async () => {
     setLoading(true);
     try {
-      await api.post("/attendance/break/start");
+      const location = await getLocation();
+      await api.post("/attendance/break/start", location);
       toast.success("Break started!");
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to start break");
+      toast.error(error.response?.data?.detail || error.message || "Failed to start break");
     } finally {
       setLoading(false);
     }
@@ -227,11 +248,12 @@ export default function EmployeeDashboard() {
   const handleEndBreak = async () => {
     setLoading(true);
     try {
-      await api.post("/attendance/break/end");
+      const location = await getLocation();
+      await api.post("/attendance/break/end", location);
       toast.success("Break ended!");
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to end break");
+      toast.error(error.response?.data?.detail || error.message || "Failed to end break");
     } finally {
       setLoading(false);
     }

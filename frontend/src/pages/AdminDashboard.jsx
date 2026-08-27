@@ -11,8 +11,19 @@ import {
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
-  GitPullRequest
+  GitPullRequest, MapPin, GearSix, NavigationArrow
 } from "@phosphor-icons/react";
+import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// Fix default Leaflet icon
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+});
 import { useRef } from "react";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
@@ -125,6 +136,12 @@ export default function AdminDashboard() {
   });
   const [changeRequests, setChangeRequests] = useState([]);
   const [crActionNotes, setCrActionNotes] = useState("");
+  const [attendanceView, setAttendanceView] = useState("table");
+  const [locationData, setLocationData] = useState([]);
+  const [officeSettings, setOfficeSettings] = useState({ latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, office_name: "Office" });
+  const [officeDialogOpen, setOfficeDialogOpen] = useState(false);
+  const [officeForm, setOfficeForm] = useState({ latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, office_name: "Office" });
+  const [locationDate, setLocationDate] = useState(new Date().toISOString().split("T")[0]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -138,7 +155,9 @@ export default function AdminDashboard() {
         api.get("/policy/list"),
         api.get("/admin/wfh-requests"),
         api.get("/admin/payroll/summary"),
-        api.get("/admin/change-requests")
+        api.get("/admin/change-requests"),
+        api.get("/admin/office-settings").catch(() => ({ data: { latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, name: "Office" } })),
+        api.get(`/admin/attendance/locations?date=${new Date().toISOString().split("T")[0]}`).catch(() => ({ data: [] }))
       ];
       // Only admins can access payslips
       if (user?.role === "admin") {
@@ -155,8 +174,12 @@ export default function AdminDashboard() {
       setWfhRequests(results[7].data);
       setPayrollSummary(results[8].data);
       setChangeRequests(results[9].data);
-      if (user?.role === "admin" && results[10]) {
-        setPayslips(results[10].data);
+      const oSettings = results[10].data;
+      setOfficeSettings(oSettings);
+      setOfficeForm({ latitude: oSettings.latitude, longitude: oSettings.longitude, radius_km: oSettings.radius_km, office_name: oSettings.name || "Office" });
+      setLocationData(results[11].data);
+      if (user?.role === "admin" && results[12]) {
+        setPayslips(results[12].data);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -389,6 +412,24 @@ export default function AdminDashboard() {
     } catch (error) {
       toast.error(error.response?.data?.detail || `Failed to ${action} CR`);
     }
+  };
+
+  const handleSaveOfficeSettings = async () => {
+    try {
+      await api.put("/admin/office-settings", officeForm);
+      toast.success("Office location settings saved!");
+      setOfficeSettings({ ...officeForm, name: officeForm.office_name });
+      setOfficeDialogOpen(false);
+    } catch (error) {
+      toast.error("Failed to save office settings");
+    }
+  };
+
+  const fetchLocationData = async (date) => {
+    try {
+      const res = await api.get(`/admin/attendance/locations?date=${date}`);
+      setLocationData(res.data);
+    } catch { setLocationData([]); }
   };
 
   const openEditModal = (employee) => {
@@ -1949,123 +1990,276 @@ export default function AdminDashboard() {
         {/* Attendance Tab */}
         {activeTab === "attendance" && (
           <>
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-6 flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Attendance Records</h1>
-                <p className="text-gray-500 mt-1">View employee attendance history</p>
+                <p className="text-gray-500 mt-1">View employee attendance with location tracking</p>
               </div>
-              <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="export-attendance-btn" className="bg-[#00C853] text-white hover:bg-[#00A844] gap-2">
-                    <FileXls className="h-4 w-4" weight="bold" />
-                    Export to Excel
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="font-['Outfit']">Export Attendance Report</DialogTitle>
-                  </DialogHeader>
-                  <p className="text-sm text-gray-500 -mt-2">Select date range and employee to export.</p>
-                  <div className="space-y-4 pt-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Start Date</Label>
-                        <Input
-                          data-testid="export-start-date"
-                          type="date"
-                          value={exportForm.start_date}
-                          onChange={(e) => setExportForm({ ...exportForm, start_date: e.target.value })}
-                        />
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <Dialog open={officeDialogOpen} onOpenChange={setOfficeDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="office-settings-btn" variant="outline" className="gap-2 border-gray-300">
+                        <GearSix className="h-4 w-4" />
+                        Office Location
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle className="font-['Outfit']">Office Geofence Settings</DialogTitle>
+                      </DialogHeader>
+                      <p className="text-sm text-gray-500 -mt-2">Set office coordinates and allowed radius for clock-in.</p>
+                      <div className="space-y-4 pt-4">
+                        <div className="space-y-2">
+                          <Label>Office Name</Label>
+                          <Input data-testid="office-name-input" value={officeForm.office_name} onChange={(e) => setOfficeForm({ ...officeForm, office_name: e.target.value })} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Latitude</Label>
+                            <Input data-testid="office-lat-input" type="number" step="0.0001" value={officeForm.latitude} onChange={(e) => setOfficeForm({ ...officeForm, latitude: parseFloat(e.target.value) })} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Longitude</Label>
+                            <Input data-testid="office-lng-input" type="number" step="0.0001" value={officeForm.longitude} onChange={(e) => setOfficeForm({ ...officeForm, longitude: parseFloat(e.target.value) })} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Allowed Radius (km)</Label>
+                          <Input data-testid="office-radius-input" type="number" step="0.1" value={officeForm.radius_km} onChange={(e) => setOfficeForm({ ...officeForm, radius_km: parseFloat(e.target.value) })} />
+                          <p className="text-xs text-gray-500">{(officeForm.radius_km * 1000).toFixed(0)} meters</p>
+                        </div>
+                        <Button data-testid="save-office-btn" onClick={handleSaveOfficeSettings} className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]">
+                          Save Office Location
+                        </Button>
                       </div>
-                      <div className="space-y-2">
-                        <Label>End Date</Label>
-                        <Input
-                          data-testid="export-end-date"
-                          type="date"
-                          value={exportForm.end_date}
-                          onChange={(e) => setExportForm({ ...exportForm, end_date: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Employee (optional)</Label>
-                      <Select
-                        value={exportForm.employee_id || "all"}
-                        onValueChange={(value) => setExportForm({ ...exportForm, employee_id: value === "all" ? "" : value })}
-                      >
-                        <SelectTrigger data-testid="export-employee-select">
-                          <SelectValue placeholder="All employees" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All employees</SelectItem>
-                          {employees.filter(e => e.role !== "admin").map((emp) => (
-                            <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button
-                      data-testid="download-export-btn"
-                      onClick={handleExportAttendance}
-                      disabled={loading}
-                      className="w-full bg-[#00C853] text-white hover:bg-[#00A844] gap-2"
-                    >
-                      <DownloadSimple className="h-4 w-4" />
-                      Download Excel Report
+                    </DialogContent>
+                  </Dialog>
+                )}
+                <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="export-attendance-btn" className="bg-[#00C853] text-white hover:bg-[#00A844] gap-2">
+                      <FileXls className="h-4 w-4" weight="bold" />
+                      Export to Excel
                     </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle className="font-['Outfit']">Export Attendance Report</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-gray-500 -mt-2">Select date range and employee to export.</p>
+                    <div className="space-y-4 pt-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Start Date</Label>
+                          <Input data-testid="export-start-date" type="date" value={exportForm.start_date} onChange={(e) => setExportForm({ ...exportForm, start_date: e.target.value })} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>End Date</Label>
+                          <Input data-testid="export-end-date" type="date" value={exportForm.end_date} onChange={(e) => setExportForm({ ...exportForm, end_date: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Employee (optional)</Label>
+                        <Select value={exportForm.employee_id || "all"} onValueChange={(value) => setExportForm({ ...exportForm, employee_id: value === "all" ? "" : value })}>
+                          <SelectTrigger data-testid="export-employee-select"><SelectValue placeholder="All employees" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All employees</SelectItem>
+                            {employees.filter(e => e.role !== "admin").map((emp) => (
+                              <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button data-testid="download-export-btn" onClick={handleExportAttendance} disabled={loading} className="w-full bg-[#00C853] text-white hover:bg-[#00A844] gap-2">
+                        <DownloadSimple className="h-4 w-4" />
+                        Download Excel Report
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-sm overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className="table-header">Employee</th>
-                    <th className="table-header">Date</th>
-                    <th className="table-header">Clock In</th>
-                    <th className="table-header">Clock Out</th>
-                    <th className="table-header">Break Time</th>
-                    <th className="table-header">Working Hours</th>
-                    <th className="table-header">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {attendance.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="text-center py-8 text-gray-500">No attendance records</td>
-                    </tr>
-                  ) : (
-                    attendance.slice(0, 50).map((rec, idx) => (
-                      <tr key={idx} className="table-row">
-                        <td className="table-cell font-medium">{rec.user_name}</td>
-                        <td className="table-cell">{format(new Date(rec.date), "MMM d, yyyy")}</td>
-                        <td className="table-cell">{format(new Date(rec.clock_in), "h:mm a")}</td>
-                        <td className="table-cell">
-                          {rec.clock_out ? format(new Date(rec.clock_out), "h:mm a") : "—"}
-                        </td>
-                        <td className="table-cell">{rec.total_break_minutes || 0} min</td>
-                        <td className="table-cell">
-                          <span className={rec.working_hours && rec.working_hours < 7.5 ? "text-[#FF2E00] font-medium" : ""}>
-                            {rec.working_hours ? formatHours(rec.working_hours) : "—"}
-                          </span>
-                        </td>
-                        <td className="table-cell">
-                          {rec.is_short_day ? (
-                            <span className="badge-rejected">Short Day</span>
-                          ) : rec.clock_out ? (
-                            <span className="badge-approved">Completed</span>
-                          ) : (
-                            <span className="badge-pending">Active</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            {/* View Toggle */}
+            <div className="flex items-center gap-3 mb-5">
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                <button
+                  data-testid="attendance-table-view"
+                  onClick={() => setAttendanceView("table")}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${attendanceView === "table" ? "bg-white text-[#002FA7] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Table View
+                </button>
+                <button
+                  data-testid="attendance-map-view"
+                  onClick={() => { setAttendanceView("map"); fetchLocationData(locationDate); }}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${attendanceView === "map" ? "bg-white text-[#002FA7] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Map View
+                </button>
+              </div>
+              {attendanceView === "map" && (
+                <Input
+                  data-testid="location-date-picker"
+                  type="date"
+                  value={locationDate}
+                  onChange={(e) => { setLocationDate(e.target.value); fetchLocationData(e.target.value); }}
+                  className="w-44"
+                />
+              )}
             </div>
+
+            {/* Table View */}
+            {attendanceView === "table" && (
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="table-header">Employee</th>
+                      <th className="table-header">Date</th>
+                      <th className="table-header">Clock In</th>
+                      <th className="table-header">Clock Out</th>
+                      <th className="table-header">Location</th>
+                      <th className="table-header">Break</th>
+                      <th className="table-header">Hours</th>
+                      <th className="table-header">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendance.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" className="text-center py-8 text-gray-500">No attendance records</td>
+                      </tr>
+                    ) : (
+                      attendance.slice(0, 50).map((rec, idx) => (
+                        <tr key={idx} className="table-row">
+                          <td className="table-cell font-medium">{rec.user_name}</td>
+                          <td className="table-cell">{format(new Date(rec.date), "MMM d, yyyy")}</td>
+                          <td className="table-cell">{format(new Date(rec.clock_in), "h:mm a")}</td>
+                          <td className="table-cell">
+                            {rec.clock_out ? format(new Date(rec.clock_out), "h:mm a") : "—"}
+                          </td>
+                          <td className="table-cell">
+                            {rec.clock_in_address ? (
+                              <div className="max-w-[200px]">
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3 text-[#002FA7] flex-shrink-0" weight="fill" />
+                                  <span className="text-xs text-gray-700 truncate" title={rec.clock_in_address}>
+                                    {rec.clock_in_address.split(",").slice(0, 3).join(",")}
+                                  </span>
+                                </div>
+                                {rec.location_type && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full mt-0.5 inline-block ${
+                                    rec.location_type === "Office" ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"
+                                  }`}>{rec.location_type}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">No location</span>
+                            )}
+                          </td>
+                          <td className="table-cell">{rec.total_break_minutes || 0} min</td>
+                          <td className="table-cell">
+                            <span className={rec.working_hours && rec.working_hours < 8 ? "text-[#FF2E00] font-medium" : ""}>
+                              {rec.working_hours ? formatHours(rec.working_hours) : "—"}
+                            </span>
+                          </td>
+                          <td className="table-cell">
+                            {rec.is_short_day ? (
+                              <span className="badge-rejected">Short Day</span>
+                            ) : rec.clock_out ? (
+                              <span className="badge-approved">Completed</span>
+                            ) : (
+                              <span className="badge-pending">Active</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Map View */}
+            {attendanceView === "map" && (
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <NavigationArrow className="h-4 w-4 text-[#002FA7]" weight="fill" />
+                    <span className="text-sm font-medium text-gray-700">Employee Locations — {format(new Date(locationDate + "T00:00:00"), "MMM d, yyyy")}</span>
+                  </div>
+                  <span className="text-xs text-gray-500">{locationData.length} records with location</span>
+                </div>
+                <div style={{ height: "500px", width: "100%" }} data-testid="attendance-map">
+                  <MapContainer
+                    center={[officeSettings.latitude, officeSettings.longitude]}
+                    zoom={14}
+                    style={{ height: "100%", width: "100%" }}
+                    scrollWheelZoom={true}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    {/* Office geofence circle */}
+                    <Circle
+                      center={[officeSettings.latitude, officeSettings.longitude]}
+                      radius={officeSettings.radius_km * 1000}
+                      pathOptions={{ color: "#002FA7", fillColor: "#002FA7", fillOpacity: 0.08, weight: 2, dashArray: "5 5" }}
+                    />
+                    <Marker position={[officeSettings.latitude, officeSettings.longitude]}>
+                      <Popup>
+                        <strong>{officeSettings.name || "Office"}</strong><br />
+                        <span className="text-xs">Geofence: {(officeSettings.radius_km * 1000).toFixed(0)}m radius</span>
+                      </Popup>
+                    </Marker>
+                    {/* Employee clock-in markers */}
+                    {locationData.map((rec) => rec.clock_in_lat && (
+                      <Marker key={`in-${rec.id}`} position={[rec.clock_in_lat, rec.clock_in_lng]}>
+                        <Popup>
+                          <div style={{ minWidth: 180 }}>
+                            <strong>{rec.user_name}</strong> ({rec.employee_code})<br />
+                            <span style={{ fontSize: 11 }}>Clock In: {format(new Date(rec.clock_in), "h:mm a")}</span><br />
+                            {rec.clock_out && <><span style={{ fontSize: 11 }}>Clock Out: {format(new Date(rec.clock_out), "h:mm a")}</span><br /></>}
+                            <span style={{ fontSize: 11, color: "#666" }}>{rec.clock_in_address?.split(",").slice(0, 3).join(",")}</span><br />
+                            {rec.location_type && <span style={{ fontSize: 10, background: rec.location_type === "Office" ? "#e3f2fd" : "#f3e5f5", padding: "2px 6px", borderRadius: 8 }}>{rec.location_type}</span>}
+                          </div>
+                        </Popup>
+                      </Marker>
+                    ))}
+                    {/* Clock-out markers */}
+                    {locationData.filter(r => r.clock_out_lat).map((rec) => (
+                      <Marker key={`out-${rec.id}`} position={[rec.clock_out_lat, rec.clock_out_lng]}>
+                        <Popup>
+                          <div style={{ minWidth: 180 }}>
+                            <strong>{rec.user_name}</strong> — Clock Out<br />
+                            <span style={{ fontSize: 11 }}>{format(new Date(rec.clock_out), "h:mm a")}</span><br />
+                            <span style={{ fontSize: 11, color: "#666" }}>{rec.clock_out_address?.split(",").slice(0, 3).join(",")}</span>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    ))}
+                  </MapContainer>
+                </div>
+                {/* Location legend */}
+                <div className="px-5 py-3 bg-gray-50 border-t flex items-center gap-6 text-xs text-gray-600">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full border-2 border-[#002FA7] bg-[#002FA7]/10"></div>
+                    Office Geofence
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-blue-600" weight="fill" />
+                    Clock In
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-red-500" weight="fill" />
+                    Clock Out
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
 

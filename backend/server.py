@@ -28,6 +28,8 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.units import inch, mm
 from num2words import num2words
 from openpyxl import Workbook
+import httpx
+import math
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 ROOT_DIR = Path(__file__).parent
@@ -206,6 +208,63 @@ SHIFTS = {
     "night": {"name": "Night Shift", "start": "20:00", "end": "04:00"}
 }
 
+# Geofencing defaults (can be overridden in DB settings table)
+DEFAULT_OFFICE_LAT = 10.0159  # Kochi, Kerala
+DEFAULT_OFFICE_LNG = 76.3419
+DEFAULT_OFFICE_RADIUS_KM = 0.5  # 500 meters
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Calculate distance between two GPS points in kilometers."""
+    R = 6371
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * 2 * math.asin(math.sqrt(a))
+
+async def reverse_geocode(lat, lng):
+    """Get address from coordinates using Nominatim (free)."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=json&addressdetails=1",
+                headers={"User-Agent": "SparkCurv-HR-Portal/1.0"}
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("display_name", f"{lat}, {lng}")
+    except Exception:
+        pass
+    return f"{lat}, {lng}"
+
+async def get_office_settings():
+    """Get office location settings from DB or use defaults."""
+    settings = await execute_query("SELECT * FROM office_settings WHERE id = 1", fetch_one=True)
+    if settings:
+        return {
+            "latitude": float(settings["latitude"]),
+            "longitude": float(settings["longitude"]),
+            "radius_km": float(settings["radius_km"]),
+            "name": settings.get("office_name", "Office")
+        }
+    return {"latitude": DEFAULT_OFFICE_LAT, "longitude": DEFAULT_OFFICE_LNG, "radius_km": DEFAULT_OFFICE_RADIUS_KM, "name": "Office"}
+
+async def check_geofence(lat, lng, user_id):
+    """Check if location is within office geofence or user has approved WFH."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Check if user has approved WFH for today
+    wfh = await execute_query(
+        "SELECT id FROM wfh_requests WHERE employee_id = %s AND start_date <= %s AND end_date >= %s AND status = 'approved'",
+        (user_id, today, today), fetch_one=True
+    )
+    if wfh:
+        return True, "WFH"
+    # Check office geofence
+    office = await get_office_settings()
+    distance = haversine_km(lat, lng, office["latitude"], office["longitude"])
+    if distance <= office["radius_km"]:
+        return True, "Office"
+    return False, f"Outside office area ({distance:.1f} km away, max {office['radius_km']} km)"
+
 # Pydantic Models
 class UserRegister(BaseModel):
     email: EmailStr
@@ -241,6 +300,16 @@ class PermissionRequest(BaseModel):
     duration_minutes: int
     reason: str
     date: str
+
+class LocationData(BaseModel):
+    latitude: float
+    longitude: float
+
+class OfficeSettingsUpdate(BaseModel):
+    latitude: float
+    longitude: float
+    radius_km: float = 0.5
+    office_name: str = "Office"
 
 class SalaryUpdate(BaseModel):
     basic_salary: float
@@ -367,23 +436,55 @@ async def clock_in(request: Request):
     if is_holiday(today):
         raise HTTPException(status_code=400, detail=f"Cannot clock in on holiday: {get_holiday_name(today)}")
 
+    # Parse location from request body
+    try:
+        body = await request.json()
+        lat = body.get("latitude")
+        lng = body.get("longitude")
+    except Exception:
+        lat = None
+        lng = None
+
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="Location is required. Please enable GPS/location services.")
+
+    # Geofence check
+    allowed, location_type = await check_geofence(lat, lng, user["id"])
+    if not allowed:
+        raise HTTPException(status_code=400, detail=f"Cannot clock in: {location_type}. You must be at the office or have approved WFH.")
+
     existing = await execute_query(
         "SELECT id FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True
     )
     if existing:
         raise HTTPException(status_code=400, detail="Already clocked in")
 
+    # Reverse geocode
+    address = await reverse_geocode(lat, lng)
+
     att_id = await execute_query(
-        "INSERT INTO attendance (user_id, user_name, date, clock_in, total_break_minutes) VALUES (%s, %s, %s, %s, 0)",
-        (user["id"], user["name"], today, datetime.now(timezone.utc).isoformat()), last_id=True
+        "INSERT INTO attendance (user_id, user_name, date, clock_in, total_break_minutes, clock_in_lat, clock_in_lng, clock_in_address, location_type) VALUES (%s, %s, %s, %s, 0, %s, %s, %s, %s)",
+        (user["id"], user["name"], today, datetime.now(timezone.utc).isoformat(), lat, lng, address, location_type), last_id=True
     )
 
-    return {"id": str(att_id), "user_id": str(user["id"]), "user_name": user["name"], "date": today, "clock_in": datetime.now(timezone.utc).isoformat(), "clock_out": None, "breaks": [], "total_break_minutes": 0}
+    return {"id": str(att_id), "user_id": str(user["id"]), "user_name": user["name"], "date": today, "clock_in": datetime.now(timezone.utc).isoformat(), "clock_out": None, "breaks": [], "total_break_minutes": 0, "clock_in_lat": lat, "clock_in_lng": lng, "clock_in_address": address, "location_type": location_type}
 
 @attendance_router.post("/clock-out")
 async def clock_out(request: Request):
     user = await get_current_user(request)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Parse location from request body
+    try:
+        body = await request.json()
+        lat = body.get("latitude")
+        lng = body.get("longitude")
+    except Exception:
+        lat = None
+        lng = None
+
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="Location is required for clock out.")
 
     attendance = await execute_query(
         "SELECT * FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True
@@ -392,6 +493,9 @@ async def clock_out(request: Request):
         raise HTTPException(status_code=400, detail="Not clocked in")
 
     clock_out_time = datetime.now(timezone.utc)
+
+    # Reverse geocode
+    address = await reverse_geocode(lat, lng)
 
     # End any active break
     active_break = await execute_query(
@@ -420,15 +524,15 @@ async def clock_out(request: Request):
     is_short_day = 1 if working_hours < REQUIRED_WORK_HOURS else 0
 
     await execute_query(
-        "UPDATE attendance SET clock_out = %s, total_break_minutes = %s, working_hours = %s, is_short_day = %s WHERE id = %s",
-        (clock_out_time.isoformat(), int(total_break), round(working_hours, 2), is_short_day, attendance["id"])
+        "UPDATE attendance SET clock_out = %s, total_break_minutes = %s, working_hours = %s, is_short_day = %s, clock_out_lat = %s, clock_out_lng = %s, clock_out_address = %s WHERE id = %s",
+        (clock_out_time.isoformat(), int(total_break), round(working_hours, 2), is_short_day, lat, lng, address, attendance["id"])
     )
 
     if is_short_day:
         await check_and_deduct_half_day_leave(user["id"])
 
     breaks_formatted = [{"start": b["break_start"], "end": b["break_end"]} for b in (breaks_list or [])]
-    return {"id": str(attendance["id"]), "user_id": str(user["id"]), "user_name": user["name"], "date": today, "clock_in": attendance["clock_in"], "clock_out": clock_out_time.isoformat(), "breaks": breaks_formatted, "total_break_minutes": int(total_break), "working_hours": round(working_hours, 2), "is_short_day": bool(is_short_day)}
+    return {"id": str(attendance["id"]), "user_id": str(user["id"]), "user_name": user["name"], "date": today, "clock_in": attendance["clock_in"], "clock_out": clock_out_time.isoformat(), "breaks": breaks_formatted, "total_break_minutes": int(total_break), "working_hours": round(working_hours, 2), "is_short_day": bool(is_short_day), "clock_out_lat": lat, "clock_out_lng": lng, "clock_out_address": address}
 
 async def check_and_deduct_half_day_leave(user_id: int):
     now = datetime.now(timezone.utc)
@@ -454,6 +558,17 @@ async def start_break(request: Request):
     user = await get_current_user(request)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    try:
+        body = await request.json()
+        lat = body.get("latitude")
+        lng = body.get("longitude")
+    except Exception:
+        lat = None
+        lng = None
+
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="Location is required for break.")
+
     attendance = await execute_query(
         "SELECT * FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True
     )
@@ -471,8 +586,8 @@ async def start_break(request: Request):
         raise HTTPException(status_code=400, detail=f"Break limit reached. Maximum {MAX_BREAK_MINUTES} minutes break allowed per day.")
 
     await execute_query(
-        "INSERT INTO breaks (attendance_id, break_start) VALUES (%s, %s)",
-        (attendance["id"], datetime.now(timezone.utc).isoformat())
+        "INSERT INTO breaks (attendance_id, break_start, break_start_lat, break_start_lng) VALUES (%s, %s, %s, %s)",
+        (attendance["id"], datetime.now(timezone.utc).isoformat(), lat, lng)
     )
 
     breaks_list = await execute_query("SELECT break_start, break_end FROM breaks WHERE attendance_id = %s", (attendance["id"],), fetch_all=True)
@@ -484,6 +599,17 @@ async def start_break(request: Request):
 async def end_break(request: Request):
     user = await get_current_user(request)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    try:
+        body = await request.json()
+        lat = body.get("latitude")
+        lng = body.get("longitude")
+    except Exception:
+        lat = None
+        lng = None
+
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="Location is required for ending break.")
 
     attendance = await execute_query(
         "SELECT * FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True
@@ -497,7 +623,8 @@ async def end_break(request: Request):
     if not active:
         raise HTTPException(status_code=400, detail="Not on break")
 
-    await execute_query("UPDATE breaks SET break_end = %s WHERE id = %s", (datetime.now(timezone.utc).isoformat(), active["id"]))
+    await execute_query("UPDATE breaks SET break_end = %s, break_end_lat = %s, break_end_lng = %s WHERE id = %s",
+        (datetime.now(timezone.utc).isoformat(), lat, lng, active["id"]))
 
     breaks_list = await execute_query("SELECT break_start, break_end FROM breaks WHERE attendance_id = %s", (attendance["id"],), fetch_all=True)
     total_break = 0
@@ -2099,6 +2226,52 @@ async def admin_action_cr(cr_id: str, request: Request, action: str = "approve",
     )
     return {"message": f"CR {action}d by admin", "status": new_status}
 
+# ============== OFFICE SETTINGS ROUTES ==============
+
+@admin_router.get("/office-settings")
+async def get_office_settings_api(request: Request):
+    await require_admin(request)
+    settings = await get_office_settings()
+    return settings
+
+@admin_router.put("/office-settings")
+async def update_office_settings_api(data: OfficeSettingsUpdate, request: Request):
+    await require_admin(request)
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await execute_query("SELECT id FROM office_settings WHERE id = 1", fetch_one=True)
+    if existing:
+        await execute_query(
+            "UPDATE office_settings SET latitude = %s, longitude = %s, radius_km = %s, office_name = %s, updated_at = %s WHERE id = 1",
+            (data.latitude, data.longitude, data.radius_km, data.office_name, now)
+        )
+    else:
+        await execute_query(
+            "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, updated_at) VALUES (1, %s, %s, %s, %s, %s)",
+            (data.latitude, data.longitude, data.radius_km, data.office_name, now)
+        )
+    return {"message": "Office settings updated", "latitude": data.latitude, "longitude": data.longitude, "radius_km": data.radius_km}
+
+# Employee location map data for admin
+@admin_router.get("/attendance/locations")
+async def get_attendance_locations(request: Request, date: str = None):
+    await require_admin_or_manager(request)
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    records = await execute_query(
+        """SELECT a.*, u.employee_code, u.department, u.position, u.avatar_url
+           FROM attendance a JOIN users u ON a.user_id = u.id
+           WHERE a.date = %s AND a.clock_in_lat IS NOT NULL
+           ORDER BY a.clock_in DESC""",
+        (date,), fetch_all=True
+    )
+    result = []
+    for r in (records or []):
+        d = dict(r)
+        d["id"] = str(d.pop("id"))
+        d["user_id"] = str(d["user_id"])
+        result.append(d)
+    return result
+
 # ============== INCLUDE ROUTERS ==============
 
 api_router.include_router(auth_router)
@@ -2207,6 +2380,13 @@ async def init_database():
                     total_break_minutes INT DEFAULT 0,
                     working_hours FLOAT,
                     is_short_day TINYINT DEFAULT 0,
+                    clock_in_lat DOUBLE,
+                    clock_in_lng DOUBLE,
+                    clock_in_address TEXT,
+                    clock_out_lat DOUBLE,
+                    clock_out_lng DOUBLE,
+                    clock_out_address TEXT,
+                    location_type VARCHAR(20),
                     INDEX idx_user_date (user_id, date)
                 )
             """)
@@ -2216,6 +2396,10 @@ async def init_database():
                     attendance_id INT NOT NULL,
                     break_start VARCHAR(64),
                     break_end VARCHAR(64),
+                    break_start_lat DOUBLE,
+                    break_start_lng DOUBLE,
+                    break_end_lat DOUBLE,
+                    break_end_lng DOUBLE,
                     INDEX idx_attendance (attendance_id)
                 )
             """)
@@ -2349,6 +2533,16 @@ async def init_database():
                     INDEX idx_status (status)
                 )
             """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS office_settings (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    latitude DOUBLE NOT NULL,
+                    longitude DOUBLE NOT NULL,
+                    radius_km FLOAT DEFAULT 0.5,
+                    office_name VARCHAR(255) DEFAULT 'Office',
+                    updated_at VARCHAR(64)
+                )
+            """)
 
 @app.on_event("startup")
 async def startup():
@@ -2396,6 +2590,30 @@ async def startup():
                 logger.info("Added wfh_limit column to users")
             except Exception as e:
                 logger.warning(f"Could not add wfh_limit column: {e}")
+
+        # Migration: Add location columns to attendance
+        for col in ["clock_in_lat DOUBLE", "clock_in_lng DOUBLE", "clock_in_address TEXT", "clock_out_lat DOUBLE", "clock_out_lng DOUBLE", "clock_out_address TEXT", "location_type VARCHAR(20)"]:
+            col_name = col.split()[0]
+            try:
+                await execute_query(f"SELECT {col_name} FROM attendance LIMIT 1", fetch_one=True)
+            except Exception:
+                try:
+                    await execute_query(f"ALTER TABLE attendance ADD COLUMN {col}")
+                    logger.info(f"Added {col_name} to attendance")
+                except Exception:
+                    pass
+
+        # Migration: Add location columns to breaks
+        for col in ["break_start_lat DOUBLE", "break_start_lng DOUBLE", "break_end_lat DOUBLE", "break_end_lng DOUBLE"]:
+            col_name = col.split()[0]
+            try:
+                await execute_query(f"SELECT {col_name} FROM breaks LIMIT 1", fetch_one=True)
+            except Exception:
+                try:
+                    await execute_query(f"ALTER TABLE breaks ADD COLUMN {col}")
+                    logger.info(f"Added {col_name} to breaks")
+                except Exception:
+                    pass
 
         # Backfill employee_code for existing users without one
         try:

@@ -8,9 +8,11 @@ Build HR portal for login all employees with Leave, Login, logout, break etc. Ne
 - **Frontend**: React with Tailwind CSS + Shadcn UI on port 3000
 - **Database**: MySQL (MariaDB) on localhost:3306 - Database: hr_portal
 - **Authentication**: JWT with httpOnly cookies
+- **Map**: Leaflet + OpenStreetMap (free, no API key)
+- **Geocoding**: Nominatim reverse geocoding (free)
 
 ## Role System (3-Tier)
-- **Admin**: Full access - manage employees, payslips, shifts, approve leaves/permissions/CRs, attendance export
+- **Admin**: Full access - manage employees, payslips, shifts, approve leaves/permissions/CRs, attendance export, office settings
 - **Manager**: Can approve/reject leaves, permissions, and CRs (step 1). Cannot manage employees or payslips
 - **Employee**: Clock in/out, breaks, leave/permission/WFH/CR requests, view payslips, salary structure
 
@@ -20,12 +22,26 @@ Build HR portal for login all employees with Leave, Login, logout, break etc. Ne
 - Short day: < 8 hours = short day, 3 short days = 0.5 day casual leave deduction
 - Flexible working time (no fixed shift enforcement)
 
+## Location Tracking & Geofencing
+- GPS location captured on clock-in, clock-out, break start, break end (mandatory)
+- Reverse geocoded address stored via Nominatim
+- Office geofence: configurable lat/lng + radius (default 500m)
+- WFH exception: employees with approved WFH can clock in from anywhere
+- Admin map view: interactive Leaflet map showing employee locations per day
+- Table view: location address + Office/WFH badge per record
+
 ## Leave Policy
 - Casual Leave: 12 days/year (custom per employee)
 - Sick Leave: 3 days/year (custom per employee)
 - Loss of Pay: Unlimited (salary deducted per day)
 - Half-day leave: supported, 1.5 days/month cap
 - Weekends (Sat/Sun) and public holidays excluded from leave day count
+
+## Change Request (CR) System
+- Types: Installation, Maintenance, Software, Hardware, Access, Policy Change, General, Other
+- Anyone can raise a CR
+- 2-step approval: Manager approves (step 1) → Admin approves (step 2)
+- Status flow: pending → manager_approved → approved / rejected
 
 ## What's Been Implemented
 - [x] JWT authentication with httpOnly cookies (secure for HTTPS)
@@ -48,33 +64,29 @@ Build HR portal for login all employees with Leave, Login, logout, break etc. Ne
 - [x] Payslip redesigned to match Sparkcurv format
 - [x] Cookie secure=True for HTTPS deployments
 - [x] Company Policy feature
-- [x] **Payroll Module** (Aug 27, 2026): Dashboard (YTD, monthly, dept breakdown), Deductions (PF/ESI/TDS per employee), Bulk Process, Payslips sub-tab
-- [x] **Employee Salary Tab** (Aug 27, 2026): Earnings breakdown (Basic, HRA, Medical, Conveyance, Special) + deductions
-- [x] **Change Request (CR) System** (Aug 27, 2026): 2-step approval (Manager → Admin), configurable types, employee raise/track
-- [x] **Working Time Update** (Aug 27, 2026): 8 hours min + 40 min break allowance
+- [x] Payroll Module (Dashboard, Deductions, Process, Payslips sub-tabs)
+- [x] Employee Salary Tab (Earnings + Deductions + Net)
+- [x] Change Request (CR) System (2-step approval)
+- [x] Working Time Update (8h min + 40 min break)
+- [x] **GPS Location Tracking** (Aug 27, 2026): Mandatory GPS on clock-in/out/break, reverse geocoding, geofencing
+- [x] **Interactive Map View** (Aug 27, 2026): Leaflet map with office geofence, employee markers, date picker
+- [x] **Office Geofence Settings** (Aug 27, 2026): Admin configurable office lat/lng/radius, WFH exception
 
 ## Key API Endpoints
 - POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
-- POST /api/attendance/clock-in, POST /api/attendance/clock-out
-- POST /api/attendance/break/start, POST /api/attendance/break/end
-- GET/POST /api/admin/employees
-- POST /api/admin/employees/{id}/reset-password
-- GET/PUT /api/admin/leave-requests/{id}?action=approve|reject
-- POST /api/admin/payslip/generate
-- POST /api/admin/payroll/process (bulk)
-- GET /api/admin/payroll/summary
-- POST/GET/DELETE /api/admin/deductions
-- GET /api/admin/change-requests
-- PUT /api/admin/change-requests/{id}/manager-action?action=approve|reject
-- PUT /api/admin/change-requests/{id}/admin-action?action=approve|reject
+- POST /api/attendance/clock-in (requires lat/lng), POST /api/attendance/clock-out (requires lat/lng)
+- POST /api/attendance/break/start (requires lat/lng), POST /api/attendance/break/end (requires lat/lng)
+- GET/PUT /api/admin/office-settings
+- GET /api/admin/attendance/locations?date=YYYY-MM-DD
 - POST /api/cr/create, GET /api/cr/my-requests, DELETE /api/cr/{id}, GET /api/cr/types
+- GET /api/admin/change-requests
+- PUT /api/admin/change-requests/{id}/manager-action, PUT /api/admin/change-requests/{id}/admin-action
+- POST /api/admin/payroll/process, GET /api/admin/payroll/summary
 - GET /api/payslip/my-salary-structure
-- GET /api/holidays/list
-- GET /api/reports/attendance/export
 
 ## Database Tables (MySQL)
-users, attendance, breaks, leave_requests, permissions, payslips, leave_deductions, custom_deductions, payroll_runs, policies, wfh_requests, change_requests
+users, attendance (with location columns), breaks (with location columns), leave_requests, permissions, payslips, leave_deductions, custom_deductions, payroll_runs, policies, wfh_requests, change_requests, office_settings
 
 ## Backlog
-- [ ] Refactor server.py into route modules (~2500 lines) - P2
+- [ ] Refactor server.py into route modules (~2700 lines) - P2
 - [ ] Accessibility improvements (aria attributes) - P2
