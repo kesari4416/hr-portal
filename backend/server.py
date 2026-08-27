@@ -1030,13 +1030,28 @@ async def get_all_attendance(request: Request, date: Optional[str] = None):
 
     result = []
     for rec in (rows or []):
-        breaks_list = await execute_query("SELECT break_start, break_end FROM breaks WHERE attendance_id = %s", (rec["id"],), fetch_all=True)
+        breaks_list = await execute_query("SELECT break_start, break_end, break_start_lat, break_start_lng FROM breaks WHERE attendance_id = %s", (rec["id"],), fetch_all=True)
+        # Check if any break was outside geofence
+        break_outside = False
+        if breaks_list:
+            office = await get_office_settings()
+            for brk in breaks_list:
+                if brk.get("break_start_lat") and brk.get("break_start_lng"):
+                    dist = haversine_km(brk["break_start_lat"], brk["break_start_lng"], office["latitude"], office["longitude"])
+                    if dist > office["radius_km"]:
+                        break_outside = True
+                        break
         result.append({
             "user_id": str(rec["user_id"]), "user_name": rec["user_name"], "date": rec["date"],
             "clock_in": rec["clock_in"], "clock_out": rec["clock_out"],
             "breaks": [{"start": b["break_start"], "end": b["break_end"]} for b in (breaks_list or [])],
             "total_break_minutes": rec.get("total_break_minutes", 0),
-            "working_hours": rec.get("working_hours"), "is_short_day": bool(rec.get("is_short_day"))
+            "working_hours": rec.get("working_hours"), "is_short_day": bool(rec.get("is_short_day")),
+            "clock_in_lat": rec.get("clock_in_lat"), "clock_in_lng": rec.get("clock_in_lng"),
+            "clock_in_address": rec.get("clock_in_address"),
+            "clock_out_address": rec.get("clock_out_address"),
+            "location_type": rec.get("location_type"),
+            "break_outside_geofence": break_outside
         })
     return result
 
@@ -2227,6 +2242,122 @@ async def admin_action_cr(cr_id: str, request: Request, action: str = "approve",
     return {"message": f"CR {action}d by admin", "status": new_status}
 
 # ============== OFFICE SETTINGS ROUTES ==============
+
+# Notification counts for manager/admin
+@admin_router.get("/notifications")
+async def get_notifications(request: Request):
+    user = await require_admin_or_manager(request)
+    pending_leaves = await execute_query("SELECT COUNT(*) as cnt FROM leave_requests WHERE status = 'pending'", fetch_one=True)
+    pending_wfh = await execute_query("SELECT COUNT(*) as cnt FROM wfh_requests WHERE status = 'pending'", fetch_one=True)
+    pending_permissions = await execute_query("SELECT COUNT(*) as cnt FROM permissions WHERE status = 'pending'", fetch_one=True)
+    if user["role"] == "admin":
+        pending_crs = await execute_query("SELECT COUNT(*) as cnt FROM change_requests WHERE status IN ('pending', 'manager_approved')", fetch_one=True)
+    else:
+        pending_crs = await execute_query("SELECT COUNT(*) as cnt FROM change_requests WHERE manager_approval = 'pending'", fetch_one=True)
+
+    total = (pending_leaves["cnt"] or 0) + (pending_wfh["cnt"] or 0) + (pending_crs["cnt"] or 0) + (pending_permissions["cnt"] or 0)
+    items = []
+    if pending_leaves["cnt"]: items.append({"type": "leave", "count": pending_leaves["cnt"], "label": f"{pending_leaves['cnt']} pending leave request(s)"})
+    if pending_wfh["cnt"]: items.append({"type": "wfh", "count": pending_wfh["cnt"], "label": f"{pending_wfh['cnt']} pending WFH request(s)"})
+    if pending_crs["cnt"]: items.append({"type": "cr", "count": pending_crs["cnt"], "label": f"{pending_crs['cnt']} pending change request(s)"})
+    if pending_permissions["cnt"]: items.append({"type": "permission", "count": pending_permissions["cnt"], "label": f"{pending_permissions['cnt']} pending permission request(s)"})
+    return {"total": total, "items": items}
+
+# Attendance heatmap — weekly on-time/late/absent
+@admin_router.get("/attendance/heatmap")
+async def get_attendance_heatmap(request: Request, weeks: int = 4):
+    await require_admin_or_manager(request)
+    today = datetime.now(timezone.utc)
+    start = today - timedelta(days=weeks * 7)
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = today.strftime("%Y-%m-%d")
+
+    # Get all employees
+    emps = await execute_query("SELECT id, name, employee_code, department FROM users WHERE role IN ('employee', 'manager') ORDER BY name", fetch_all=True)
+    # Get attendance records in range
+    records = await execute_query(
+        "SELECT user_id, date, clock_in, working_hours, is_short_day FROM attendance WHERE date >= %s AND date <= %s",
+        (start_str, end_str), fetch_all=True
+    )
+
+    # Build lookup: {user_id: {date: record}}
+    att_map = {}
+    for r in (records or []):
+        uid = r["user_id"]
+        if uid not in att_map:
+            att_map[uid] = {}
+        att_map[uid][r["date"]] = r
+
+    # Generate date list (excluding weekends)
+    dates = []
+    d = start
+    while d <= today:
+        ds = d.strftime("%Y-%m-%d")
+        if d.weekday() < 5:  # Mon-Fri
+            dates.append(ds)
+        d += timedelta(days=1)
+
+    # Build heatmap data
+    heatmap = []
+    for emp in (emps or []):
+        row = {"employee_id": str(emp["id"]), "name": emp["name"], "employee_code": emp.get("employee_code", ""), "department": emp.get("department", ""), "days": []}
+        for dt in dates:
+            rec = att_map.get(emp["id"], {}).get(dt)
+            if rec:
+                # Check if on-time: clock_in before 10:00 AM is on-time
+                try:
+                    cin = datetime.fromisoformat(rec["clock_in"])
+                    clock_hour = cin.hour + cin.minute / 60
+                    if clock_hour <= 10.0:
+                        status = "ontime"
+                    else:
+                        status = "late"
+                except Exception:
+                    status = "present"
+                if rec.get("is_short_day"):
+                    status = "short"
+                row["days"].append({"date": dt, "status": status, "hours": rec.get("working_hours")})
+            else:
+                row["days"].append({"date": dt, "status": "absent", "hours": None})
+        heatmap.append(row)
+
+    return {"dates": dates, "employees": heatmap}
+
+# Break location alerts — breaks outside office geofence
+@admin_router.get("/attendance/break-alerts")
+async def get_break_alerts(request: Request, date: str = None):
+    await require_admin_or_manager(request)
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    office = await get_office_settings()
+
+    # Get today's attendance with breaks that have location
+    att_records = await execute_query(
+        "SELECT a.id, a.user_id, a.user_name, a.date FROM attendance a WHERE a.date = %s",
+        (date,), fetch_all=True
+    )
+    alerts = []
+    for att in (att_records or []):
+        breaks_with_loc = await execute_query(
+            "SELECT id, break_start, break_end, break_start_lat, break_start_lng FROM breaks WHERE attendance_id = %s AND break_start_lat IS NOT NULL",
+            (att["id"],), fetch_all=True
+        )
+        for brk in (breaks_with_loc or []):
+            dist = haversine_km(brk["break_start_lat"], brk["break_start_lng"], office["latitude"], office["longitude"])
+            if dist > office["radius_km"]:
+                alerts.append({
+                    "attendance_id": str(att["id"]),
+                    "user_id": str(att["user_id"]),
+                    "user_name": att["user_name"],
+                    "break_id": str(brk["id"]),
+                    "break_start": brk["break_start"],
+                    "break_end": brk["break_end"],
+                    "latitude": brk["break_start_lat"],
+                    "longitude": brk["break_start_lng"],
+                    "distance_km": round(dist, 2),
+                    "date": att["date"]
+                })
+    return alerts
 
 @admin_router.get("/office-settings")
 async def get_office_settings_api(request: Request):

@@ -11,7 +11,7 @@ import {
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
-  GitPullRequest, MapPin, GearSix, NavigationArrow
+  GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning
 } from "@phosphor-icons/react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
@@ -142,6 +142,9 @@ export default function AdminDashboard() {
   const [officeDialogOpen, setOfficeDialogOpen] = useState(false);
   const [officeForm, setOfficeForm] = useState({ latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, office_name: "Office" });
   const [locationDate, setLocationDate] = useState(new Date().toISOString().split("T")[0]);
+  const [notifications, setNotifications] = useState({ total: 0, items: [] });
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
+  const [heatmapData, setHeatmapData] = useState({ dates: [], employees: [] });
 
   const fetchData = useCallback(async () => {
     try {
@@ -189,6 +192,42 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Poll notifications every 30 seconds + fetch heatmap
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const res = await api.get("/admin/notifications");
+        setNotifications(res.data);
+        // Browser notification for new pending items
+        if (res.data.total > 0 && Notification.permission === "granted") {
+          // Only show if there's a new increase (basic check)
+          const prevTotal = parseInt(sessionStorage.getItem("notif_total") || "0");
+          if (res.data.total > prevTotal) {
+            new Notification("Sparkcurv HR Portal", {
+              body: res.data.items.map(i => i.label).join(", "),
+              icon: "/favicon.ico"
+            });
+          }
+          sessionStorage.setItem("notif_total", res.data.total.toString());
+        }
+      } catch {}
+    };
+    const fetchHeatmap = async () => {
+      try {
+        const res = await api.get("/admin/attendance/heatmap?weeks=4");
+        setHeatmapData(res.data);
+      } catch {}
+    };
+    // Request notification permission
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    fetchNotifications();
+    fetchHeatmap();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleAddEmployee = async () => {
     if (!newEmployee.email || !newEmployee.password || !newEmployee.name) {
@@ -647,6 +686,48 @@ export default function AdminDashboard() {
           <span className="text-xs font-bold text-[#002FA7] uppercase tracking-wider mt-2 block">{isAdmin ? "Admin Panel" : "Manager Panel"}</span>
         </div>
 
+        {/* Notification Bell */}
+        <div className="px-4 pt-3 pb-1">
+          <button
+            data-testid="notification-bell"
+            onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}
+            className="relative flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Bell className="h-5 w-5 text-gray-600" weight={notifications.total > 0 ? "fill" : "duotone"} />
+            <span className="text-gray-700 font-medium">Notifications</span>
+            {notifications.total > 0 && (
+              <span className="ml-auto flex items-center justify-center h-5 min-w-[20px] px-1 bg-[#FF2E00] text-white text-[10px] font-bold rounded-full animate-pulse">
+                {notifications.total}
+              </span>
+            )}
+          </button>
+          {notifDropdownOpen && notifications.items.length > 0 && (
+            <div className="mx-2 mt-1 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+              {notifications.items.map((item, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    setNotifDropdownOpen(false);
+                    if (item.type === "leave") setActiveTab("leaves");
+                    else if (item.type === "wfh") setActiveTab("wfh");
+                    else if (item.type === "cr") setActiveTab("change-requests");
+                    else if (item.type === "permission") setActiveTab("permissions");
+                  }}
+                  className="w-full text-left px-3 py-2.5 text-xs hover:bg-blue-50 border-b last:border-b-0 border-gray-100 flex items-center gap-2"
+                >
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    item.type === "leave" ? "bg-[#FFC107]" :
+                    item.type === "cr" ? "bg-[#002FA7]" :
+                    item.type === "wfh" ? "bg-purple-500" :
+                    "bg-orange-500"
+                  }`} />
+                  <span className="text-gray-700">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => (
@@ -740,6 +821,61 @@ export default function AdminDashboard() {
                 ))}
               </div>
             </div>
+
+            {/* Attendance Heatmap */}
+            {heatmapData.employees.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-lg p-6 mt-6" data-testid="attendance-heatmap">
+                <h2 className="text-lg font-bold text-gray-900 font-['Outfit'] mb-1">Attendance Heatmap</h2>
+                <p className="text-xs text-gray-500 mb-4">Last 4 weeks — on-time, late arrivals, and absences at a glance</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr>
+                        <th className="text-left pr-3 py-1.5 text-gray-500 font-medium sticky left-0 bg-white min-w-[140px]">Employee</th>
+                        {heatmapData.dates.map(d => {
+                          const dt = new Date(d + "T00:00:00");
+                          return (
+                            <th key={d} className="text-center px-0.5 py-1.5 text-gray-400 font-normal" style={{ minWidth: 28 }}>
+                              <div>{["S","M","T","W","T","F","S"][dt.getDay()]}</div>
+                              <div className="text-[10px]">{dt.getDate()}</div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {heatmapData.employees.map(emp => (
+                        <tr key={emp.employee_id}>
+                          <td className="pr-3 py-1 text-gray-700 font-medium sticky left-0 bg-white truncate max-w-[140px]" title={emp.name}>
+                            {emp.name}
+                          </td>
+                          {emp.days.map(day => (
+                            <td key={day.date} className="text-center px-0.5 py-1">
+                              <div
+                                title={`${day.date}: ${day.status}${day.hours ? ` (${day.hours}h)` : ""}`}
+                                className={`w-6 h-6 rounded-sm mx-auto ${
+                                  day.status === "ontime" ? "bg-[#00C853]/80" :
+                                  day.status === "late" ? "bg-[#FFC107]/80" :
+                                  day.status === "short" ? "bg-orange-400/80" :
+                                  day.status === "present" ? "bg-blue-400/80" :
+                                  "bg-red-100"
+                                }`}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center gap-4 mt-4 text-[11px] text-gray-500">
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-[#00C853]/80" /> On Time</div>
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-[#FFC107]/80" /> Late (&gt;10 AM)</div>
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-orange-400/80" /> Short Day</div>
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-red-100" /> Absent</div>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -2166,13 +2302,21 @@ export default function AdminDashboard() {
                             </span>
                           </td>
                           <td className="table-cell">
-                            {rec.is_short_day ? (
-                              <span className="badge-rejected">Short Day</span>
-                            ) : rec.clock_out ? (
-                              <span className="badge-approved">Completed</span>
-                            ) : (
-                              <span className="badge-pending">Active</span>
-                            )}
+                            <div className="flex items-center gap-1.5">
+                              {rec.is_short_day ? (
+                                <span className="badge-rejected">Short Day</span>
+                              ) : rec.clock_out ? (
+                                <span className="badge-approved">Completed</span>
+                              ) : (
+                                <span className="badge-pending">Active</span>
+                              )}
+                              {rec.break_outside_geofence && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-600 text-[10px] font-medium" title="Employee took a break outside office geofence">
+                                  <Warning className="h-3 w-3" weight="fill" />
+                                  Break
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))
