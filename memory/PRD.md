@@ -16,6 +16,9 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - Push/Polling Notifications
 - Attendance Heatmaps (4-week view, on-time vs late)
 - Break Location Alert badge
+- Admin Leave Balance Editor (per-employee)
+- Worker Org Tree with images
+- Role-based Tab Access Control (Manager/Employee tabs togglable by Admin)
 
 ## Tech Stack
 - **Frontend**: React, Tailwind CSS, Shadcn UI, Leaflet (react-leaflet), @phosphor-icons/react
@@ -28,7 +31,7 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 ```
 /app/
 ├── backend/
-│   ├── server.py              # All routes (>2700 lines, needs refactor)
+│   ├── server.py              # All routes (~3100 lines, needs future refactor)
 │   ├── requirements.txt
 │   └── .env
 ├── frontend/
@@ -36,6 +39,10 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 │   │   ├── App.js
 │   │   ├── index.css          # Design system + component classes
 │   │   ├── contexts/AuthContext.jsx
+│   │   ├── contexts/ThemeContext.jsx
+│   │   ├── components/
+│   │   │   ├── CRApproveDialog.jsx   # CR Admin approve dialog (extracted)
+│   │   │   └── OrgTreeNode.jsx       # Org tree rendering (extracted)
 │   │   └── pages/
 │   │       ├── LoginPage.jsx
 │   │       ├── EmployeeDashboard.jsx
@@ -45,13 +52,15 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 ```
 
 ## Key DB Schema
-- `users`: {id, employee_code, name, email, role, department, basic_salary, shift}
+- `users`: {id, employee_code, name, email, role, department, basic_salary, shift, casual_leave, sick_leave, loss_of_pay, permission_hours, wfh_limit}
 - `attendance`: {id, user_id, clock_in, clock_out, latitude, longitude, address, break_outside_geofence, working_hours}
 - `breaks`: {id, attendance_id, start/end lat/lng, start/end address}
 - `leave_requests`: {id, user_id, leave_type, start_date, end_date, is_half_day, status}
-- `change_requests`: {id, requester_id, title, description, cr_type, status, manager_approval, admin_approval, metadata}
+- `change_requests`: {id, requester_id, title, description, cr_type, status, manager_approval, admin_approval, metadata, applied_changes}
 - `payslips`: {id, user_id, month, year, basic_salary, total_deductions, net_pay}
 - `office_settings`: {id, latitude, longitude, radius_km, name}
+- `org_chart`: {id, parent_id, employee_name, job_title, image_url, description, sort_order}
+- `role_permissions`: {id, role, feature_key, enabled}
 
 ## What's Been Implemented
 
@@ -71,27 +80,31 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ Company Policy CRUD
 - ✅ Holiday list
 - ✅ Admin: Employee management (add/edit/delete/assign shift/set salary/reset password/upload avatar)
-- ✅ **GUI Redesign** (Feb 2026): Rebranded Sparkcurve → Sparkcurv, modern split login page, updated CSS design system (rounded-xl cards, improved nav, better badges/tables/buttons), consistent layout across all tabs
-- ✅ **Dark Mode Toggle** (Feb 2026): Full dark/light mode toggle in sidebar footer of both dashboards. CSS variable-based design system flips entire app. Preference persisted in localStorage. Dark palette: slate-950 page bg, slate-900 sidebar, slate-800 cards, blue-accented nav active state.
-- ✅ **Avatar Storage** (Feb 2026): Migrated from pod-local file storage → Emergent Object Storage (`/api/admin/avatars/{path}` proxy endpoint)
+- ✅ **GUI Redesign** (Feb 2026): Rebranded Sparkcurve → Sparkcurv
+- ✅ **Dark Mode Toggle** (Feb 2026): Full dark/light mode toggle, persisted in localStorage
+- ✅ **Avatar Storage** (Feb 2026): Emergent Object Storage
+- ✅ **Leave Balance Editor** (Feb 2026): Admin can edit casual/sick/LOP/permission/WFH per employee
+- ✅ **Worker Org Tree** (Feb 2026): Visual hierarchy with images via Object Storage
+- ✅ **Role-Based Tab Access** (Feb 2026): Admin toggles which tabs Manager/Employee can see; employee sidebar filters live
+- ✅ **CR Auto-Apply** (Feb 2026): On admin approval, Salary Revision / Leave Adjustment / Shift Change auto-apply to DB; admin enters apply value in review dialog; employees can specify requested value when creating such CRs
 
 ## Pending Items (Prioritized)
 
-### P0 - Critical
-- [ ] **CR Auto-Apply logic**: When Admin approves a CR, auto-apply the change to DB (e.g., salary_revision → update basic_salary). Check `approve_cr_admin` endpoint in server.py.
-
 ### P1 - High  
-- [ ] **Refactor server.py** into `/app/backend/routes/` modules (auth, employees, attendance, leaves, payroll, change_requests, admin) — User approved this.
+- [ ] **Refactor server.py** into `/app/backend/routes/` modules (auth, employees, attendance, leaves, payroll, change_requests, admin)
 
 ### P2 - Medium
-- [ ] **Accessibility improvements** (aria attributes) across dashboards — User approved.
+- [ ] **Accessibility improvements** (aria attributes) across dashboards
 
 ## Key API Endpoints
 - Auth: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
 - Attendance: `POST /api/attendance/clock-in`, `POST /api/attendance/clock-out`, `POST /api/attendance/break`
 - Leaves: `GET/POST /api/leaves`, `PUT /api/admin/leaves/{id}`
+- Leave Balance: `GET/PUT /api/admin/employees/{id}/leave-balance`
 - Payroll: `GET /api/admin/payroll/summary`, `POST /api/admin/payroll/generate`
 - Change Requests: `GET/POST /api/change-requests`, `PUT /api/admin/change-requests/{id}/manager-action`, `PUT /api/admin/change-requests/{id}/admin-action`
+- Org Chart: `GET/POST/PUT/DELETE /api/admin/org-chart`, `POST /api/admin/org-chart/{id}/image`
+- Role Perms: `GET/PUT /api/admin/role-permissions`, `GET /api/my-permissions`
 - Office: `GET/PUT /api/admin/office-settings`
 - Notifications: `GET /api/admin/notifications`
 - Heatmap: `GET /api/admin/attendance/heatmap`

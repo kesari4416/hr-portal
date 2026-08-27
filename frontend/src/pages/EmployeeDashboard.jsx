@@ -54,6 +54,7 @@ const Avatar = ({ url, name, size = "h-10 w-10", textSize = "text-sm" }) => {
 export default function EmployeeDashboard() {
   const { user, logout, api } = useAuth();
   const { dark, toggle: toggleTheme } = useTheme();
+  const [rolePermissions, setRolePermissions] = useState({});
   const [attendanceStatus, setAttendanceStatus] = useState({ clocked_in: false, on_break: false, attendance: null });
   const [leaveBalance, setLeaveBalance] = useState({ casual: 0, sick: 0, loss_of_pay: 0 });
   const [leaveRequests, setLeaveRequests] = useState([]);
@@ -73,7 +74,7 @@ export default function EmployeeDashboard() {
   const [salaryStructure, setSalaryStructure] = useState(null);
   const [myCRs, setMyCRs] = useState([]);
   const [crDialogOpen, setCrDialogOpen] = useState(false);
-  const [crForm, setCrForm] = useState({ title: "", description: "", cr_type: "General", priority: "medium" });
+  const [crForm, setCrForm] = useState({ title: "", description: "", cr_type: "General", priority: "medium", requested_value: "" });
   const [crTypes, setCrTypes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
@@ -98,7 +99,7 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes, monthlyUsageRes, salaryRes, crRes, crTypesRes] = await Promise.all([
+      const [statusRes, balanceRes, requestsRes, historyRes, permBalRes, permReqRes, summaryRes, payslipsRes, shiftRes, holidaysRes, policiesRes, wfhBalRes, wfhReqRes, monthlyUsageRes, salaryRes, crRes, crTypesRes, rolePermRes] = await Promise.all([
         api.get("/attendance/status"),
         api.get("/leave/balance"),
         api.get("/leave/my-requests"),
@@ -115,7 +116,8 @@ export default function EmployeeDashboard() {
         api.get("/leave/monthly-usage"),
         api.get("/payslip/my-salary-structure"),
         api.get("/cr/my-requests"),
-        api.get("/cr/types")
+        api.get("/cr/types"),
+        api.get("/my-permissions").catch(() => ({ data: { permissions: {} } }))
       ]);
       setAttendanceStatus(statusRes.data);
       setLeaveBalance(balanceRes.data);
@@ -134,6 +136,7 @@ export default function EmployeeDashboard() {
       setSalaryStructure(salaryRes.data);
       setMyCRs(crRes.data);
       setCrTypes(crTypesRes.data);
+      setRolePermissions(rolePermRes.data?.permissions || {});
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -382,6 +385,8 @@ export default function EmployeeDashboard() {
     }
   };
 
+  const CR_AUTO_APPLY_TYPES = ["Salary Revision", "Leave Adjustment", "Shift Change"];
+
   const handleSubmitCR = async () => {
     if (!crForm.title || !crForm.description) {
       toast.error("Title and description are required");
@@ -389,10 +394,17 @@ export default function EmployeeDashboard() {
     }
     setLoading(true);
     try {
-      await api.post("/cr/create", crForm);
+      const payload = {
+        title: crForm.title,
+        description: crForm.description,
+        cr_type: crForm.cr_type,
+        priority: crForm.priority,
+        metadata: crForm.requested_value ? { requested_value: crForm.requested_value } : null
+      };
+      await api.post("/cr/create", payload);
       toast.success("Change request submitted!");
       setCrDialogOpen(false);
-      setCrForm({ title: "", description: "", cr_type: "General", priority: "medium" });
+      setCrForm({ title: "", description: "", cr_type: "General", priority: "medium", requested_value: "" });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to submit CR");
@@ -425,6 +437,13 @@ export default function EmployeeDashboard() {
   // Calculate current working hours
   const currentWorkingHours = elapsedTime / 3600;
   const isShortDay = currentWorkingHours < 8 && attendanceStatus.clocked_in;
+
+  // Role-based tab visibility: if no permissions set, show all; if set and key=false, hide
+  const canView = (key) => {
+    if (Object.keys(rolePermissions).length === 0) return true;
+    if (rolePermissions[key] === undefined) return true;
+    return rolePermissions[key] === true;
+  };
 
   return (
     <div className="min-h-screen transition-colors duration-200" style={{ background: 'var(--bg-page)' }}>
@@ -460,60 +479,74 @@ export default function EmployeeDashboard() {
             <House style={{ width: 18, height: 18 }} weight="duotone" />
             <span>Dashboard</span>
           </button>
-          <button
-            onClick={() => setActiveTab("payslips")}
-            className={activeTab === "payslips" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <Receipt style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>Payslips</span>
-          </button>
-          <button
-            data-testid="salary-tab"
-            onClick={() => setActiveTab("salary")}
-            className={activeTab === "salary" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <CurrencyDollar style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>My Salary</span>
-          </button>
-          <button
-            data-testid="cr-tab"
-            onClick={() => setActiveTab("change-requests")}
-            className={activeTab === "change-requests" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <GitPullRequest style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>Change Requests</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("summary")}
-            className={activeTab === "summary" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <ChartBar style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>Work Summary</span>
-          </button>
-          <button
-            data-testid="wfh-tab"
-            onClick={() => setActiveTab("wfh")}
-            className={activeTab === "wfh" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <Laptop style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>Work From Home</span>
-          </button>
-          <button
-            data-testid="holidays-tab"
-            onClick={() => setActiveTab("holidays")}
-            className={activeTab === "holidays" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <CalendarStar style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>Holidays</span>
-          </button>
-          <button
-            data-testid="policy-tab"
-            onClick={() => setActiveTab("policy")}
-            className={activeTab === "policy" ? "nav-item-active w-full" : "nav-item w-full"}
-          >
-            <Scroll style={{ width: 18, height: 18 }} weight="duotone" />
-            <span>Company Policy</span>
-          </button>
+          {canView("payslips") && (
+            <button
+              onClick={() => setActiveTab("payslips")}
+              className={activeTab === "payslips" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <Receipt style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>Payslips</span>
+            </button>
+          )}
+          {canView("salary") && (
+            <button
+              data-testid="salary-tab"
+              onClick={() => setActiveTab("salary")}
+              className={activeTab === "salary" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <CurrencyDollar style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>My Salary</span>
+            </button>
+          )}
+          {canView("change-requests") && (
+            <button
+              data-testid="cr-tab"
+              onClick={() => setActiveTab("change-requests")}
+              className={activeTab === "change-requests" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <GitPullRequest style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>Change Requests</span>
+            </button>
+          )}
+          {canView("summary") && (
+            <button
+              onClick={() => setActiveTab("summary")}
+              className={activeTab === "summary" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <ChartBar style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>Work Summary</span>
+            </button>
+          )}
+          {canView("wfh") && (
+            <button
+              data-testid="wfh-tab"
+              onClick={() => setActiveTab("wfh")}
+              className={activeTab === "wfh" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <Laptop style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>Work From Home</span>
+            </button>
+          )}
+          {canView("holidays") && (
+            <button
+              data-testid="holidays-tab"
+              onClick={() => setActiveTab("holidays")}
+              className={activeTab === "holidays" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <CalendarStar style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>Holidays</span>
+            </button>
+          )}
+          {canView("policy") && (
+            <button
+              data-testid="policy-tab"
+              onClick={() => setActiveTab("policy")}
+              className={activeTab === "policy" ? "nav-item-active w-full" : "nav-item w-full"}
+            >
+              <Scroll style={{ width: 18, height: 18 }} weight="duotone" />
+              <span>Company Policy</span>
+            </button>
+          )}
         </nav>
 
         {/* User Info */}
@@ -1475,7 +1508,7 @@ export default function EmployeeDashboard() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Type</Label>
-                        <Select value={crForm.cr_type} onValueChange={(v) => setCrForm({ ...crForm, cr_type: v })}>
+                        <Select value={crForm.cr_type} onValueChange={(v) => setCrForm({ ...crForm, cr_type: v, requested_value: "" })}>
                           <SelectTrigger data-testid="cr-type-select">
                             <SelectValue />
                           </SelectTrigger>
@@ -1500,6 +1533,27 @@ export default function EmployeeDashboard() {
                         </Select>
                       </div>
                     </div>
+                    {CR_AUTO_APPLY_TYPES.includes(crForm.cr_type) && (
+                      <div className="space-y-2">
+                        <Label>
+                          {crForm.cr_type === "Salary Revision" && "Requested Salary (₹)"}
+                          {crForm.cr_type === "Leave Adjustment" && "Requested Casual Leave Days"}
+                          {crForm.cr_type === "Shift Change" && "Requested Shift (HH:MM-HH:MM)"}
+                        </Label>
+                        <Input
+                          data-testid="cr-requested-value-input"
+                          type={crForm.cr_type === "Shift Change" ? "text" : "number"}
+                          min="0"
+                          placeholder={
+                            crForm.cr_type === "Salary Revision" ? "e.g. 50000" :
+                            crForm.cr_type === "Leave Adjustment" ? "e.g. 15" :
+                            "e.g. 09:30-17:30"
+                          }
+                          value={crForm.requested_value}
+                          onChange={(e) => setCrForm({ ...crForm, requested_value: e.target.value })}
+                        />
+                      </div>
+                    )}
                     <Button
                       data-testid="submit-cr-btn"
                       onClick={handleSubmitCR}

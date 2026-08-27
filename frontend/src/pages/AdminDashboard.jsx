@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { Button } from "../components/ui/button";
@@ -12,8 +12,11 @@ import {
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
-  GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning, Sun, Moon
+  GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning, Sun, Moon,
+  TreeStructure, ShieldCheck
 } from "@phosphor-icons/react";
+import { CRApproveDialog } from "../components/CRApproveDialog";
+import { OrgTreeNode, buildOrgTree } from "../components/OrgTreeNode";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -25,8 +28,6 @@ L.Icon.Default.mergeOptions({
   iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
-import { useRef } from "react";
-
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
 const formatHours = (decimalHours) => {
   if (!decimalHours) return "—";
@@ -142,6 +143,27 @@ export default function AdminDashboard() {
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
   const [heatmapData, setHeatmapData] = useState({ dates: [], employees: [] });
 
+  // Leave balance edit
+  const [leaveBalanceOpen, setLeaveBalanceOpen] = useState(false);
+  const [leaveBalanceForm, setLeaveBalanceForm] = useState({ casual_leave: 0, sick_leave: 0, loss_of_pay: 0, permission_hours: 2, wfh_limit: 4 });
+  const [leaveBalanceEmp, setLeaveBalanceEmp] = useState(null);
+
+  // Org chart
+  const [orgNodes, setOrgNodes] = useState([]);
+  const [orgNodeDialogOpen, setOrgNodeDialogOpen] = useState(false);
+  const [editingOrgNode, setEditingOrgNode] = useState(null);
+  const [orgNodeForm, setOrgNodeForm] = useState({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 });
+  const orgImageRef = useRef(null);
+
+  // Role permissions
+  const [rolePerms, setRolePerms] = useState({ manager: {}, employee: {} });
+  const [rolePermsLoading, setRolePermsLoading] = useState(false);
+
+  // CR approve dialog
+  const [crApproveDialogOpen, setCrApproveDialogOpen] = useState(false);
+  const [selectedCR, setSelectedCR] = useState(null);
+  const [crApplyData, setCrApplyData] = useState({ notes: "", apply_value: "" });
+
   const fetchData = useCallback(async () => {
     try {
       const promises = [
@@ -179,6 +201,9 @@ export default function AdminDashboard() {
       setLocationData(results[11].data);
       if (user?.role === "admin" && results[12]) {
         setPayslips(results[12].data);
+        // Also fetch org chart and role permissions for admin
+        api.get("/admin/org-chart").then(r => setOrgNodes(r.data)).catch(() => {});
+        api.get("/admin/role-permissions").then(r => setRolePerms(r.data || { manager: {}, employee: {} })).catch(() => {});
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -449,6 +474,31 @@ export default function AdminDashboard() {
     }
   };
 
+  const AUTO_APPLY_TYPES = ["Salary Revision", "Leave Adjustment", "Shift Change"];
+
+  const openAdminApproveDialog = (cr) => {
+    setSelectedCR(cr);
+    setCrApplyData({ notes: "", apply_value: "" });
+    setCrApproveDialogOpen(true);
+  };
+
+  const handleAdminApproveCR = async (action) => {
+    if (!selectedCR) return;
+    try {
+      await api.put(`/admin/change-requests/${selectedCR.id}/admin-action`, {
+        action,
+        notes: crApplyData.notes,
+        apply_value: crApplyData.apply_value
+      });
+      toast.success(`CR ${action}d successfully${action === "approve" && AUTO_APPLY_TYPES.includes(selectedCR.cr_type) ? " — changes applied!" : ""}`);
+      setCrApproveDialogOpen(false);
+      setSelectedCR(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action} CR`);
+    }
+  };
+
   const handleSaveOfficeSettings = async () => {
     try {
       await api.put("/admin/office-settings", officeForm);
@@ -636,6 +686,97 @@ export default function AdminDashboard() {
     }
   };
 
+  // ── Leave Balance Handlers ──────────────────────────────────────────
+  const openLeaveBalanceModal = (emp) => {
+    setLeaveBalanceEmp(emp);
+    setLeaveBalanceForm({
+      casual_leave: emp.casual_leave ?? 12,
+      sick_leave: emp.sick_leave ?? 6,
+      loss_of_pay: emp.loss_of_pay ?? 0,
+      permission_hours: emp.permission_hours ?? 2,
+      wfh_limit: emp.wfh_limit ?? 4
+    });
+    setLeaveBalanceOpen(true);
+  };
+
+  const handleSaveLeaveBalance = async () => {
+    if (!leaveBalanceEmp) return;
+    setLoading(true);
+    try {
+      await api.put(`/admin/employees/${leaveBalanceEmp.id}/leave-balance`, leaveBalanceForm);
+      toast.success("Leave balance updated!");
+      setLeaveBalanceOpen(false);
+      fetchData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to update");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Org Chart Handlers ──────────────────────────────────────────────
+  const handleSaveOrgNode = async () => {
+    setLoading(true);
+    try {
+      const payload = {
+        ...orgNodeForm,
+        parent_id: orgNodeForm.parent_id ? parseInt(orgNodeForm.parent_id) : null,
+        sort_order: parseInt(orgNodeForm.sort_order) || 0
+      };
+      if (editingOrgNode) {
+        await api.put(`/admin/org-chart/${editingOrgNode.id}`, payload);
+        toast.success("Node updated");
+      } else {
+        await api.post("/admin/org-chart", payload);
+        toast.success("Node added");
+      }
+      setOrgNodeDialogOpen(false);
+      api.get("/admin/org-chart").then(r => setOrgNodes(r.data));
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to save");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteOrgNode = async (nodeId) => {
+    if (!window.confirm("Delete this node?")) return;
+    try {
+      await api.delete(`/admin/org-chart/${nodeId}`);
+      toast.success("Node deleted");
+      api.get("/admin/org-chart").then(r => setOrgNodes(r.data));
+    } catch (e) {
+      toast.error("Failed to delete");
+    }
+  };
+
+  const handleOrgNodeImageUpload = async (nodeId, file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await api.post(`/admin/org-chart/${nodeId}/image`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      toast.success("Image uploaded");
+      api.get("/admin/org-chart").then(r => setOrgNodes(r.data));
+    } catch (e) {
+      toast.error("Image upload failed");
+    }
+  };
+
+  // ── Role Permissions Handlers ───────────────────────────────────────
+  const handleSaveRolePerms = async () => {
+    setRolePermsLoading(true);
+    try {
+      await api.put("/admin/role-permissions", rolePerms);
+      toast.success("Permissions saved!");
+    } catch (e) {
+      toast.error("Failed to save permissions");
+    } finally {
+      setRolePermsLoading(false);
+    }
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case "approved":
@@ -666,8 +807,10 @@ export default function AdminDashboard() {
     { id: "wfh", label: "WFH Requests", icon: Laptop },
     { id: "permissions", label: "Permissions", icon: Timer },
     { id: "attendance", label: "Attendance", icon: Clock },
+    { id: "org-chart", label: "Worker Tree", icon: TreeStructure, adminOnly: true },
     { id: "holidays", label: "Holidays", icon: CalendarStar },
     { id: "policy", label: "Company Policy", icon: Scroll },
+    { id: "role-access", label: "Role Access", icon: ShieldCheck, adminOnly: true },
   ];
 
   const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
@@ -1104,6 +1247,16 @@ export default function AdminDashboard() {
                                 title="Set Salary"
                               >
                                 <CurrencyDollar className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                data-testid={`edit-leave-balance-${emp.id}`}
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openLeaveBalanceModal(emp)}
+                                className="text-slate-400 hover:text-amber-600 h-8 w-8 p-0"
+                                title="Edit Leave Balance"
+                              >
+                                <CalendarCheck className="h-4 w-4" />
                               </Button>
                               <Button
                                 data-testid={`reset-password-${emp.id}`}
@@ -2001,7 +2154,7 @@ export default function AdminDashboard() {
                                 <Button
                                   data-testid={`cr-admin-approve-${cr.id}`}
                                   size="sm"
-                                  onClick={() => handleCRAction(cr.id, "admin", "approve")}
+                                  onClick={() => openAdminApproveDialog(cr)}
                                   className="bg-[#002FA7] hover:bg-[#001F70] text-white h-7 text-xs px-2"
                                 >
                                   <Check className="h-3 w-3 mr-1" /> Admin
@@ -2010,7 +2163,7 @@ export default function AdminDashboard() {
                                   data-testid={`cr-admin-reject-${cr.id}`}
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => handleCRAction(cr.id, "admin", "reject")}
+                                  onClick={() => openAdminApproveDialog(cr)}
                                   className="text-red-500 hover:text-red-700 h-7 text-xs px-2"
                                 >
                                   <X className="h-3 w-3" />
@@ -2732,6 +2885,249 @@ export default function AdminDashboard() {
             </Dialog>
           </>
         )}
+
+        {/* ── Worker Tree (Org Chart) Tab ─────────────────────────────────── */}
+        {activeTab === "org-chart" && (
+          <>
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Worker Tree</h1>
+                <p className="text-slate-500 mt-1 text-sm">Organizational hierarchy — managers and employees can view</p>
+              </div>
+              {isAdmin && (
+                <Button
+                  data-testid="add-org-node-btn"
+                  onClick={() => { setEditingOrgNode(null); setOrgNodeForm({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 }); setOrgNodeDialogOpen(true); }}
+                  className="bg-[#002FA7] text-white hover:bg-[#002482] gap-2 rounded-xl"
+                >
+                  <Plus className="h-4 w-4" /> Add Person
+                </Button>
+              )}
+            </div>
+
+            {/* Org Tree Render */}
+            {orgNodes.length === 0 ? (
+              <div className="text-center py-20 text-slate-400">
+                <TreeStructure className="h-14 w-14 mx-auto mb-3" weight="duotone" />
+                <p className="font-semibold text-slate-600">No org chart yet</p>
+                {isAdmin && <p className="text-sm mt-1">Click "Add Person" to start building the worker tree</p>}
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-xl p-8 overflow-x-auto" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="flex gap-16 justify-center">
+                  {buildOrgTree(orgNodes).map(root => (
+                    <OrgTreeNode
+                      key={root.id}
+                      node={root}
+                      isAdmin={isAdmin}
+                      onEdit={(node) => { setEditingOrgNode(node); setOrgNodeForm({ employee_name: node.employee_name, job_title: node.job_title || "", description: node.description || "", parent_id: node.parent_id || "", sort_order: node.sort_order || 0 }); setOrgNodeDialogOpen(true); }}
+                      onDelete={handleDeleteOrgNode}
+                      onImageUpload={handleOrgNodeImageUpload}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Org Node Add/Edit Dialog */}
+            <Dialog open={orgNodeDialogOpen} onOpenChange={setOrgNodeDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit']">{editingOrgNode ? "Edit Person" : "Add Person"}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-2">
+                    <Label>Full Name <span className="text-red-500">*</span></Label>
+                    <Input data-testid="org-name-input" value={orgNodeForm.employee_name} onChange={e => setOrgNodeForm(f => ({ ...f, employee_name: e.target.value }))} placeholder="e.g. John Smith" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Job Title</Label>
+                    <Input data-testid="org-title-input" value={orgNodeForm.job_title} onChange={e => setOrgNodeForm(f => ({ ...f, job_title: e.target.value }))} placeholder="e.g. Senior Engineer" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Reports To (Parent)</Label>
+                    <Select value={String(orgNodeForm.parent_id)} onValueChange={v => setOrgNodeForm(f => ({ ...f, parent_id: v === "none" ? "" : v }))}>
+                      <SelectTrigger data-testid="org-parent-select" className="rounded-xl"><SelectValue placeholder="No parent (top level)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No parent (top level)</SelectItem>
+                        {orgNodes.filter(n => !editingOrgNode || n.id !== editingOrgNode.id).map(n => (
+                          <SelectItem key={n.id} value={String(n.id)}>{n.employee_name} {n.job_title ? `(${n.job_title})` : ""}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Description / Notes</Label>
+                    <Input data-testid="org-desc-input" value={orgNodeForm.description} onChange={e => setOrgNodeForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Manages engineering team" className="rounded-xl" />
+                  </div>
+                  <Button data-testid="save-org-node-btn" onClick={handleSaveOrgNode} disabled={loading || !orgNodeForm.employee_name} className="w-full bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl">
+                    {editingOrgNode ? "Update" : "Add Person"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* Leave Balance Edit Dialog (global — used from employee table) */}
+            <Dialog open={leaveBalanceOpen} onOpenChange={setLeaveBalanceOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit']">Edit Leave Balance — {leaveBalanceEmp?.name}</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-slate-500 -mt-2">Customize leave allocations for this employee.</p>
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  {[
+                    { key: "casual_leave", label: "Casual Leave (days)" },
+                    { key: "sick_leave", label: "Sick Leave (days)" },
+                    { key: "loss_of_pay", label: "Loss of Pay (days)" },
+                    { key: "permission_hours", label: "Permission Hours" },
+                    { key: "wfh_limit", label: "WFH Limit (days/month)" },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</Label>
+                      <Input
+                        data-testid={`lb-${key}`}
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={leaveBalanceForm[key]}
+                        onChange={e => setLeaveBalanceForm(f => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
+                        className="rounded-xl h-11"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button data-testid="save-leave-balance-btn" onClick={handleSaveLeaveBalance} disabled={loading} className="w-full mt-4 bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl">
+                  Save Leave Balance
+                </Button>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
+
+        {/* ── Role Access Tab ─────────────────────────────────────────────── */}
+        {activeTab === "role-access" && isAdmin && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-slate-900 font-['Outfit'] tracking-tight">Role Access Control</h1>
+              <p className="text-slate-500 mt-1 text-sm">Control which tabs and features are visible for each role</p>
+            </div>
+
+            {[
+              {
+                role: "manager",
+                label: "Manager",
+                color: "orange",
+                features: [
+                  { key: "employees", label: "Employees Tab" },
+                  { key: "attendance", label: "Attendance Tab" },
+                  { key: "leaves", label: "Leave Requests" },
+                  { key: "wfh", label: "WFH Requests" },
+                  { key: "permissions", label: "Permissions" },
+                  { key: "change-requests", label: "Change Requests" },
+                  { key: "payroll", label: "Payroll (view)" },
+                  { key: "holidays", label: "Holidays" },
+                  { key: "policy", label: "Company Policy" },
+                ]
+              },
+              {
+                role: "employee",
+                label: "Employee",
+                color: "blue",
+                features: [
+                  { key: "payslips", label: "Payslips" },
+                  { key: "salary", label: "My Salary" },
+                  { key: "change-requests", label: "Change Requests" },
+                  { key: "summary", label: "Work Summary" },
+                  { key: "wfh", label: "WFH Requests" },
+                  { key: "holidays", label: "Holidays" },
+                  { key: "policy", label: "Company Policy" },
+                ]
+              }
+            ].map(({ role, label, color, features }) => (
+              <div key={role} className="bg-white border border-slate-200 rounded-xl mb-6" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${color === 'orange' ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-blue-50 text-[#002FA7] border border-blue-200'}`}>{label}</span>
+                  <p className="text-sm text-slate-500">Toggle which features this role can access</p>
+                </div>
+                <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {features.map(({ key, label: flabel }) => {
+                    const enabled = rolePerms[role]?.[key] !== false; // default true
+                    return (
+                      <label key={key} className="flex items-center gap-3 cursor-pointer group">
+                        <button
+                          data-testid={`perm-${role}-${key}`}
+                          onClick={() => setRolePerms(p => ({ ...p, [role]: { ...p[role], [key]: !enabled } }))}
+                          className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${enabled ? 'bg-[#002FA7]' : 'bg-slate-200'}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                        <span className={`text-sm font-medium ${enabled ? 'text-slate-900' : 'text-slate-400'}`}>{flabel}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <Button
+              data-testid="save-role-perms-btn"
+              onClick={handleSaveRolePerms}
+              disabled={rolePermsLoading}
+              className="bg-[#002FA7] text-white hover:bg-[#002482] px-8 rounded-xl"
+            >
+              {rolePermsLoading ? "Saving…" : "Save Permissions"}
+            </Button>
+          </>
+        )}
+
+        {/* Global Leave Balance Dialog (accessible from employee table) */}
+        {activeTab !== "org-chart" && (
+          <>
+            <Dialog open={leaveBalanceOpen} onOpenChange={setLeaveBalanceOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="font-['Outfit']">Edit Leave Balance — {leaveBalanceEmp?.name}</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-slate-500 -mt-2">Customize leave allocations for this employee.</p>
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  {[
+                    { key: "casual_leave", label: "Casual Leave (days)" },
+                    { key: "sick_leave", label: "Sick Leave (days)" },
+                    { key: "loss_of_pay", label: "Loss of Pay (days)" },
+                    { key: "permission_hours", label: "Permission Hours" },
+                    { key: "wfh_limit", label: "WFH Limit (days/month)" },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</Label>
+                      <Input
+                        data-testid={`lb-${key}`}
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={leaveBalanceForm[key]}
+                        onChange={e => setLeaveBalanceForm(f => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
+                        className="rounded-xl h-11"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button data-testid="save-leave-balance-btn" onClick={handleSaveLeaveBalance} disabled={loading} className="w-full mt-4 bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl">
+                  Save Leave Balance
+                </Button>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
+
+        {/* CR Admin Approve Dialog */}
+        <CRApproveDialog
+          open={crApproveDialogOpen}
+          onOpenChange={setCrApproveDialogOpen}
+          cr={selectedCR}
+          applyData={crApplyData}
+          onApplyDataChange={setCrApplyData}
+          onConfirm={handleAdminApproveCR}
+        />
       </main>
     </div>
   );

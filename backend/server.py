@@ -417,6 +417,7 @@ class CRCreate(BaseModel):
     description: str
     cr_type: str = "General"
     priority: str = "medium"
+    metadata: Optional[dict] = None
 
 class CRUpdate(BaseModel):
     title: Optional[str] = None
@@ -1044,6 +1045,172 @@ async def serve_avatar(path: str):
         logging.error(f"Avatar fetch failed for {path}: {e}")
         raise HTTPException(status_code=404, detail="Avatar not found")
 
+# ── Leave Balance ─────────────────────────────────────────────────────────────
+class LeaveBalanceUpdate(BaseModel):
+    casual_leave: Optional[float] = None
+    sick_leave: Optional[float] = None
+    loss_of_pay: Optional[float] = None
+    permission_hours: Optional[float] = None
+    wfh_limit: Optional[int] = None
+
+@admin_router.put("/employees/{employee_id}/leave-balance")
+async def update_leave_balance(employee_id: str, data: LeaveBalanceUpdate, request: Request):
+    await require_admin(request)
+    emp = await execute_query("SELECT id FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    fields, values = [], []
+    if data.casual_leave is not None:
+        fields.append("casual_leave = %s"); values.append(data.casual_leave)
+    if data.sick_leave is not None:
+        fields.append("sick_leave = %s"); values.append(data.sick_leave)
+    if data.loss_of_pay is not None:
+        fields.append("loss_of_pay = %s"); values.append(data.loss_of_pay)
+    if data.permission_hours is not None:
+        fields.append("permission_hours = %s"); values.append(data.permission_hours)
+    if data.wfh_limit is not None:
+        fields.append("wfh_limit = %s"); values.append(data.wfh_limit)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    values.append(int(employee_id))
+    await execute_query(f"UPDATE users SET {', '.join(fields)} WHERE id = %s", tuple(values))
+    return {"message": "Leave balance updated successfully"}
+
+@admin_router.get("/employees/{employee_id}/leave-balance")
+async def get_employee_leave_balance(employee_id: str, request: Request):
+    await require_admin(request)
+    emp = await execute_query(
+        "SELECT casual_leave, sick_leave, loss_of_pay, permission_hours, wfh_limit FROM users WHERE id = %s",
+        (int(employee_id),), fetch_one=True
+    )
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return emp
+
+# ── Org Chart ─────────────────────────────────────────────────────────────────
+class OrgNodeCreate(BaseModel):
+    employee_name: str
+    job_title: Optional[str] = ""
+    image_url: Optional[str] = ""
+    description: Optional[str] = ""
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = 0
+
+class OrgNodeUpdate(BaseModel):
+    employee_name: Optional[str] = None
+    job_title: Optional[str] = None
+    image_url: Optional[str] = None
+    description: Optional[str] = None
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
+
+@admin_router.get("/org-chart")
+async def get_org_chart(request: Request):
+    await get_current_user(request)  # any logged in user can view
+    rows = await execute_query(
+        "SELECT * FROM org_chart ORDER BY sort_order ASC, id ASC",
+        fetch_all=True
+    )
+    return rows or []
+
+@admin_router.post("/org-chart")
+async def create_org_node(data: OrgNodeCreate, request: Request):
+    await require_admin(request)
+    from datetime import datetime, timezone as tz
+    now = datetime.now(tz.utc).isoformat()
+    result = await execute_query(
+        "INSERT INTO org_chart (parent_id, employee_name, job_title, image_url, description, sort_order, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (data.parent_id, data.employee_name, data.job_title, data.image_url, data.description, data.sort_order, now)
+    )
+    return {"id": result, "message": "Node created"}
+
+@admin_router.put("/org-chart/{node_id}")
+async def update_org_node(node_id: int, data: OrgNodeUpdate, request: Request):
+    await require_admin(request)
+    fields, values = [], []
+    if data.employee_name is not None: fields.append("employee_name=%s"); values.append(data.employee_name)
+    if data.job_title is not None: fields.append("job_title=%s"); values.append(data.job_title)
+    if data.image_url is not None: fields.append("image_url=%s"); values.append(data.image_url)
+    if data.description is not None: fields.append("description=%s"); values.append(data.description)
+    if data.parent_id is not None: fields.append("parent_id=%s"); values.append(data.parent_id)
+    if data.sort_order is not None: fields.append("sort_order=%s"); values.append(data.sort_order)
+    if not fields:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    values.append(node_id)
+    await execute_query(f"UPDATE org_chart SET {', '.join(fields)} WHERE id=%s", tuple(values))
+    return {"message": "Node updated"}
+
+@admin_router.delete("/org-chart/{node_id}")
+async def delete_org_node(node_id: int, request: Request):
+    await require_admin(request)
+    # Re-parent children to deleted node's parent
+    node = await execute_query("SELECT parent_id FROM org_chart WHERE id=%s", (node_id,), fetch_one=True)
+    if node:
+        await execute_query("UPDATE org_chart SET parent_id=%s WHERE parent_id=%s", (node["parent_id"], node_id))
+    await execute_query("DELETE FROM org_chart WHERE id=%s", (node_id,))
+    return {"message": "Node deleted"}
+
+@admin_router.post("/org-chart/{node_id}/image")
+async def upload_org_node_image(node_id: int, file: UploadFile = File(...), request: Request = None):
+    await require_admin(request)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
+    storage_path = f"{APP_NAME}/org/{node_id}_{_uuid.uuid4().hex[:8]}.{ext}"
+    content_type = MIME_TYPES.get(ext, "image/jpeg")
+    try:
+        result = await asyncio.to_thread(_put_object, storage_path, contents, content_type)
+        stored_path = result.get("path", storage_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Image upload failed")
+    image_url = f"/api/admin/avatars/{stored_path}"
+    await execute_query("UPDATE org_chart SET image_url=%s WHERE id=%s", (image_url, node_id))
+    return {"image_url": image_url}
+
+# ── Role Permissions ──────────────────────────────────────────────────────────
+@admin_router.get("/role-permissions")
+async def get_role_permissions(request: Request):
+    await require_admin(request)
+    rows = await execute_query("SELECT role, feature_key, enabled FROM role_permissions ORDER BY role, feature_key", fetch_all=True)
+    result = {}
+    for r in (rows or []):
+        role = r["role"]
+        if role not in result:
+            result[role] = {}
+        result[role][r["feature_key"]] = bool(r["enabled"])
+    return result
+
+@admin_router.put("/role-permissions")
+async def update_role_permissions(request: Request):
+    await require_admin(request)
+    body = await request.json()  # { role: { feature_key: bool, ... }, ... }
+    for role, features in body.items():
+        if role not in ("manager", "employee"):
+            continue
+        for feature_key, enabled in features.items():
+            await execute_query(
+                "INSERT INTO role_permissions (role, feature_key, enabled) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE enabled=%s",
+                (role, feature_key, int(bool(enabled)), int(bool(enabled)))
+            )
+    return {"message": "Permissions updated"}
+
+# All roles can read their own permissions
+@app.get("/api/my-permissions")
+async def get_my_permissions(request: Request):
+    user = await get_current_user(request)
+    role = user.get("role", "employee")
+    if role == "admin":
+        return {"role": "admin", "permissions": {}}  # admin has all access
+    rows = await execute_query(
+        "SELECT feature_key, enabled FROM role_permissions WHERE role=%s",
+        (role,), fetch_all=True
+    )
+    perms = {}
+    for r in (rows or []):
+        perms[r["feature_key"]] = bool(r["enabled"])
+    return {"role": role, "permissions": perms}
+
 @admin_router.get("/leave-requests")
 async def get_all_leave_requests(request: Request, status: Optional[str] = None):
     user = await require_admin_or_manager(request)
@@ -1210,7 +1377,7 @@ async def request_permission(perm_data: PermissionRequest, request: Request):
     return {"id": str(perm_id), "user_id": str(user["id"]), "user_name": user["name"], "user_email": user.get("email", ""), "duration_minutes": perm_data.duration_minutes, "reason": perm_data.reason, "date": perm_data.date, "status": "pending", "created_at": now.isoformat(), "reviewed_by": None, "reviewed_at": None}
 
 @permission_router.get("/my-requests")
-async def get_my_permissions(request: Request):
+async def get_my_permission_requests(request: Request):
     user = await get_current_user(request)
     rows = await execute_query("SELECT * FROM permissions WHERE user_id = %s ORDER BY created_at DESC", (user["id"],), fetch_all=True)
     result = []
@@ -2211,16 +2378,17 @@ async def get_my_salary_structure(request: Request):
 
 # ============== CHANGE REQUEST ROUTES ==============
 
-CR_TYPES = ["Installation", "Maintenance", "Software", "Hardware", "Access", "Policy Change", "General", "Other"]
+CR_TYPES = ["Installation", "Maintenance", "Software", "Hardware", "Access", "Policy Change", "Salary Revision", "Leave Adjustment", "Shift Change", "General", "Other"]
 
 @cr_router.post("/create")
 async def create_cr(data: CRCreate, request: Request):
     user = await get_current_user(request)
     now = datetime.now(timezone.utc).isoformat()
+    metadata_json = json.dumps(data.metadata) if data.metadata else None
     cr_id = await execute_query(
-        """INSERT INTO change_requests (requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, created_at, updated_at)
-           VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s)""",
-        (user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, now, now),
+        """INSERT INTO change_requests (requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, metadata, created_at, updated_at)
+           VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s, %s)""",
+        (user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, metadata_json, now, now),
         last_id=True
     )
     return {"id": str(cr_id), "title": data.title, "status": "pending", "message": "Change request created"}
@@ -2302,10 +2470,15 @@ async def manager_action_cr(cr_id: str, request: Request, action: str = "approve
     )
     return {"message": f"CR {action}d by manager", "status": new_status}
 
-# Admin approval (step 2)
+# Admin approval (step 2) with auto-apply
 @admin_router.put("/change-requests/{cr_id}/admin-action")
-async def admin_action_cr(cr_id: str, request: Request, action: str = "approve", notes: str = ""):
+async def admin_action_cr(cr_id: str, request: Request):
     admin = await require_admin(request)
+    body = await request.json()
+    action = body.get("action", "approve")
+    notes = body.get("notes", "")
+    apply_value = body.get("apply_value", "")
+
     cr = await execute_query("SELECT * FROM change_requests WHERE id = %s", (int(cr_id),), fetch_one=True)
     if not cr:
         raise HTTPException(status_code=404, detail="CR not found")
@@ -2320,11 +2493,32 @@ async def admin_action_cr(cr_id: str, request: Request, action: str = "approve",
         new_status = "rejected"
         adm_approval = "rejected"
 
+    applied_changes = None
+    # Auto-apply changes on approval
+    if action == "approve" and apply_value:
+        cr_type = cr.get("cr_type", "")
+        requester_id = cr.get("requester_id")
+        try:
+            if cr_type == "Salary Revision":
+                new_salary = float(apply_value)
+                await execute_query("UPDATE users SET basic_salary = %s WHERE id = %s", (new_salary, requester_id))
+                applied_changes = json.dumps({"type": "salary_revision", "new_value": new_salary})
+            elif cr_type == "Leave Adjustment":
+                new_leave = float(apply_value)
+                await execute_query("UPDATE users SET casual_leave = %s WHERE id = %s", (new_leave, requester_id))
+                applied_changes = json.dumps({"type": "leave_adjustment", "casual_leave": new_leave})
+            elif cr_type == "Shift Change":
+                new_shift = str(apply_value).strip()
+                await execute_query("UPDATE users SET shift = %s WHERE id = %s", (new_shift, requester_id))
+                applied_changes = json.dumps({"type": "shift_change", "new_shift": new_shift})
+        except Exception as e:
+            logger.warning(f"Auto-apply failed for CR {cr_id}: {e}")
+
     await execute_query(
-        "UPDATE change_requests SET status = %s, admin_approval = %s, admin_id = %s, admin_name = %s, admin_notes = %s, admin_action_at = %s, updated_at = %s WHERE id = %s",
-        (new_status, adm_approval, admin["id"], admin["name"], notes, now, now, int(cr_id))
+        "UPDATE change_requests SET status = %s, admin_approval = %s, admin_id = %s, admin_name = %s, admin_notes = %s, admin_action_at = %s, applied_changes = %s, updated_at = %s WHERE id = %s",
+        (new_status, adm_approval, admin["id"], admin["name"], notes, now, applied_changes, now, int(cr_id))
     )
-    return {"message": f"CR {action}d by admin", "status": new_status}
+    return {"message": f"CR {action}d by admin", "status": new_status, "applied": applied_changes is not None}
 
 # ============== OFFICE SETTINGS ROUTES ==============
 
@@ -2743,6 +2937,8 @@ async def init_database():
                     admin_name VARCHAR(255),
                     admin_notes TEXT,
                     admin_action_at VARCHAR(64),
+                    metadata TEXT,
+                    applied_changes TEXT,
                     created_at VARCHAR(64),
                     updated_at VARCHAR(64),
                     INDEX idx_requester (requester_id),
@@ -2757,6 +2953,27 @@ async def init_database():
                     radius_km FLOAT DEFAULT 0.5,
                     office_name VARCHAR(255) DEFAULT 'Office',
                     updated_at VARCHAR(64)
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS org_chart (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    parent_id INT,
+                    employee_name VARCHAR(255) NOT NULL,
+                    job_title VARCHAR(255),
+                    image_url TEXT,
+                    description TEXT,
+                    sort_order INT DEFAULT 0,
+                    created_at VARCHAR(64)
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS role_permissions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    role VARCHAR(20) NOT NULL,
+                    feature_key VARCHAR(100) NOT NULL,
+                    enabled TINYINT DEFAULT 1,
+                    UNIQUE KEY uk_role_feature (role, feature_key)
                 )
             """)
 
@@ -2830,6 +3047,18 @@ async def startup():
                     logger.info(f"Added {col_name} to breaks")
                 except Exception:
                     pass
+
+        # Migration: Add metadata and applied_changes to change_requests
+        for col in ["metadata TEXT", "applied_changes TEXT"]:
+            col_name = col.split()[0]
+            try:
+                await execute_query(f"SELECT {col_name} FROM change_requests LIMIT 1", fetch_one=True)
+            except Exception:
+                try:
+                    await execute_query(f"ALTER TABLE change_requests ADD COLUMN {col}")
+                    logger.info(f"Added {col_name} to change_requests")
+                except Exception as e:
+                    logger.warning(f"Could not add {col_name} to change_requests: {e}")
 
         # Backfill employee_code for existing users without one
         try:
