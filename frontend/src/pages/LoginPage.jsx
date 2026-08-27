@@ -43,20 +43,11 @@ export default function LoginPage() {
 
           {/* Branding */}
           <div className="flex items-center gap-3 mb-12">
-            <div
-              className="flex items-center justify-center rounded-xl"
-              style={{
-                width: 42,
-                height: 42,
-                background: 'linear-gradient(135deg, #002FA7 0%, #3B5BDB 100%)',
-                boxShadow: '0 4px 14px rgba(0,47,167,0.30)'
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M3 10.5C3 6.91 5.91 4 9.5 4s6.5 2.91 6.5 6.5" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-                <circle cx="9.5" cy="13.5" r="2.5" fill="white"/>
-              </svg>
-            </div>
+            <img
+              src="/sparkcurv-logo.png"
+              alt="Sparkcurv"
+              style={{ width: 46, height: 46, objectFit: 'contain' }}
+            />
             <div>
               <span
                 className="text-[22px] font-bold tracking-tight"

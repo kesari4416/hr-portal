@@ -477,20 +477,11 @@ export default function EmployeeDashboard() {
         {/* Logo */}
         <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
           <div className="flex items-center gap-3">
-            <div
-              className="flex items-center justify-center rounded-xl flex-shrink-0"
-              style={{
-                width: 36,
-                height: 36,
-                background: 'linear-gradient(135deg, #002FA7 0%, #3B5BDB 100%)',
-                boxShadow: '0 4px 10px rgba(0,47,167,0.25)'
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                <path d="M3 10.5C3 6.91 5.91 4 9.5 4s6.5 2.91 6.5 6.5" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-                <circle cx="9.5" cy="13.5" r="2.5" fill="white"/>
-              </svg>
-            </div>
+            <img
+              src="/sparkcurv-logo.png"
+              alt="Sparkcurv"
+              style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }}
+            />
             <span className="text-xl font-bold text-slate-900 font-['Outfit']">Sparkcurv</span>
           </div>
         </div>

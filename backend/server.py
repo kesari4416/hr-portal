@@ -1598,15 +1598,15 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
     # Build header with logo
     if os.path.exists(logo_path):
         try:
-            logo = RLImage(logo_path, width=40, height=40)
-            logo_cell = Table([[logo]], colWidths=[45])
-            logo_cell.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+            logo = RLImage(logo_path, width=48, height=48)
+            logo_cell = Table([[logo]], colWidths=[55])
+            logo_cell.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
         except Exception:
             logo_cell = Paragraph("", styles['Normal'])
     else:
         logo_cell = Paragraph("", styles['Normal'])
 
-    left_table = Table([[logo_cell, company_block]], colWidths=[50, page_width * 0.45])
+    left_table = Table([[logo_cell, company_block]], colWidths=[58, page_width * 0.45])
     left_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0)]))
 
     right_table = Table([[right_block]], colWidths=[page_width * 0.45])
