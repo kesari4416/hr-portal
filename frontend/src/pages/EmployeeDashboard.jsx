@@ -16,8 +16,9 @@ import {
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
   CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
-  GitPullRequest, Plus, Sun, Moon
+  GitPullRequest, Plus, Sun, Moon, TreeStructure
 } from "@phosphor-icons/react";
+import { buildOrgTree } from "../components/OrgTreeNode";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
 const formatHours = (decimalHours) => {
@@ -55,6 +56,7 @@ export default function EmployeeDashboard() {
   const { user, logout, api } = useAuth();
   const { dark, toggle: toggleTheme } = useTheme();
   const [rolePermissions, setRolePermissions] = useState({});
+  const [orgNodes, setOrgNodes] = useState([]);
   const [attendanceStatus, setAttendanceStatus] = useState({ clocked_in: false, on_break: false, attendance: null });
   const [leaveBalance, setLeaveBalance] = useState({ casual: 0, sick: 0, loss_of_pay: 0 });
   const [leaveRequests, setLeaveRequests] = useState([]);
@@ -137,6 +139,8 @@ export default function EmployeeDashboard() {
       setMyCRs(crRes.data);
       setCrTypes(crTypesRes.data);
       setRolePermissions(rolePermRes.data?.permissions || {});
+      // Fetch org chart separately (non-critical)
+      api.get("/admin/org-chart").then(r => setOrgNodes(r.data || [])).catch(() => {});
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -445,6 +449,51 @@ export default function EmployeeDashboard() {
     return rolePermissions[key] === true;
   };
 
+  // Read-only org tree node (view-only for employees/managers) — iterative BFS layout
+  function OrgTreeViewNode({ node }) {
+    const levels = [];
+    const queue = [{ n: node, depth: 0 }];
+    while (queue.length > 0) {
+      const { n, depth } = queue.shift();
+      if (!levels[depth]) levels[depth] = [];
+      levels[depth].push(n);
+      (n.children || []).forEach(c => queue.push({ n: c, depth: depth + 1 }));
+    }
+    return (
+      <div className="flex flex-col items-center gap-0">
+        {levels.map((levelNodes, depth) => (
+          <div key={depth} className="flex flex-col items-center">
+            {depth > 0 && <div className="w-0.5 h-6 bg-slate-300" />}
+            <div className="flex gap-8 relative">
+              {levelNodes.length > 1 && depth > 0 && (
+                <div className="absolute top-0 left-1/2 -translate-x-1/2" style={{ width: "calc(100% - 80px)", height: 1, background: "#CBD5E1" }} />
+              )}
+              {levelNodes.map(n => (
+                <div key={n.id} className="flex flex-col items-center">
+                  {depth > 0 && <div className="w-0.5 h-6 bg-slate-300" />}
+                  <div data-testid={`org-node-view-${n.id}`} className="bg-white border-2 border-slate-200 rounded-xl p-4 flex flex-col items-center text-center" style={{ width: 152 }}>
+                    <div className="mb-2">
+                      {n.image_url ? (
+                        <img src={n.image_url} alt={n.employee_name} className="w-14 h-14 rounded-full object-cover border-2 border-slate-200" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-blue-50 border-2 border-blue-100 flex items-center justify-center">
+                          <span className="text-xl font-bold text-[#002FA7]">{n.employee_name?.[0] || "?"}</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="font-bold text-slate-900 text-sm leading-tight">{n.employee_name}</p>
+                    {n.job_title && <p className="text-xs text-[#002FA7] font-semibold mt-0.5">{n.job_title}</p>}
+                    {n.description && <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{n.description}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen transition-colors duration-200" style={{ background: 'var(--bg-page)' }}>
       {/* Sidebar */}
@@ -547,6 +596,14 @@ export default function EmployeeDashboard() {
               <span>Company Policy</span>
             </button>
           )}
+          <button
+            data-testid="org-tree-tab"
+            onClick={() => setActiveTab("org-tree")}
+            className={activeTab === "org-tree" ? "nav-item-active w-full" : "nav-item w-full"}
+          >
+            <TreeStructure style={{ width: 18, height: 18 }} weight="duotone" />
+            <span>Worker Tree</span>
+          </button>
         </nav>
 
         {/* User Info */}
@@ -1883,6 +1940,30 @@ export default function EmployeeDashboard() {
             <div className="mt-4 text-sm text-gray-500">
               Total public holidays: <strong>{holidays.length}</strong>
             </div>
+          </>
+        )}
+        {activeTab === "org-tree" && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 font-['Outfit'] tracking-tight">Worker Tree</h1>
+              <p className="text-gray-500 mt-1 text-sm">Your company's organizational hierarchy</p>
+            </div>
+
+            {orgNodes.length === 0 ? (
+              <div className="text-center py-20 text-slate-400">
+                <TreeStructure className="h-14 w-14 mx-auto mb-3" weight="duotone" />
+                <p className="font-semibold text-slate-600">Org chart not set up yet</p>
+                <p className="text-sm mt-1">Contact your admin to build the worker tree</p>
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-xl p-8 overflow-x-auto" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                <div className="flex gap-16 justify-center">
+                  {buildOrgTree(orgNodes).map(root => (
+                    <OrgTreeViewNode key={root.id} node={root} />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </main>
