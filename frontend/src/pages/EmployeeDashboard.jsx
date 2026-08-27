@@ -596,9 +596,9 @@ export default function EmployeeDashboard() {
                     </div>
                     <h2 className="text-base font-bold text-slate-900 font-['Outfit']">Time Tracker</h2>
                   </div>
-                  {myShift && (
+                  {myShift && myShift.is_set && (
                     <span className="text-xs px-2.5 py-1 bg-blue-50 text-[#002FA7] rounded-full font-semibold border border-blue-100">
-                      {myShift.name} ({myShift.start_time} - {myShift.end_time})
+                      {myShift.start_time} – {myShift.end_time}
                     </span>
                   )}
                 </div>

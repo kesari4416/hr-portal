@@ -251,12 +251,18 @@ def get_holiday_name(date_str: str) -> str:
             return h["festival"]
     return ""
 
-SHIFTS = {
-    "general": {"name": "General Shift", "start": "09:30", "end": "17:30"},
-    "morning": {"name": "Morning Shift", "start": "04:00", "end": "12:00"},
-    "afternoon": {"name": "Afternoon Shift", "start": "12:00", "end": "20:00"},
-    "night": {"name": "Night Shift", "start": "20:00", "end": "04:00"}
-}
+SHIFTS = {}  # Legacy - no longer used. Shifts are stored as "HH:MM-HH:MM" in users.shift column
+
+DEFAULT_SHIFT_START = "09:00"
+DEFAULT_SHIFT_END = "18:00"
+
+def parse_shift(shift_str: str) -> dict:
+    """Parse shift string 'HH:MM-HH:MM' into start/end dict."""
+    if shift_str and "-" in shift_str:
+        parts = shift_str.split("-", 1)
+        if len(parts) == 2:
+            return {"start": parts[0].strip(), "end": parts[1].strip()}
+    return {"start": DEFAULT_SHIFT_START, "end": DEFAULT_SHIFT_END}
 
 # Geofencing defaults (can be overridden in DB settings table)
 DEFAULT_OFFICE_LAT = 10.0159  # Kochi, Kerala
@@ -382,7 +388,8 @@ class CustomDeductionCreate(BaseModel):
     is_active: bool = True
 
 class ShiftAssign(BaseModel):
-    shift: str
+    start_time: str  # HH:MM
+    end_time: str    # HH:MM
 
 class PasswordReset(BaseModel):
     new_password: str
@@ -782,9 +789,15 @@ async def get_working_hours_summary(request: Request):
 @attendance_router.get("/my-shift")
 async def get_my_shift(request: Request):
     user = await get_current_user(request)
-    shift_key = user.get("shift") or "general"
-    shift_info = SHIFTS.get(shift_key, SHIFTS["general"])
-    return {"shift": shift_key, "name": shift_info["name"], "start_time": shift_info["start"], "end_time": shift_info["end"]}
+    shift_str = user.get("shift") or ""
+    info = parse_shift(shift_str)
+    return {
+        "shift": shift_str,
+        "name": f"{info['start']} – {info['end']}",
+        "start_time": info["start"],
+        "end_time": info["end"],
+        "is_set": bool(shift_str)
+    }
 
 # ============== LEAVE ROUTES ==============
 
@@ -1679,31 +1692,37 @@ async def delete_payslip(payslip_id: str, request: Request):
 @admin_router.get("/shifts")
 async def get_shifts(request: Request):
     await require_admin(request)
-    return SHIFTS
+    return {"default_start": DEFAULT_SHIFT_START, "default_end": DEFAULT_SHIFT_END}
 
 @admin_router.put("/employees/{employee_id}/shift")
 async def assign_shift(employee_id: str, shift_data: ShiftAssign, request: Request):
     await require_admin(request)
-    if shift_data.shift not in SHIFTS:
-        raise HTTPException(status_code=400, detail=f"Invalid shift. Available: {list(SHIFTS.keys())}")
+    import re
+    time_re = re.compile(r"^\d{2}:\d{2}$")
+    if not time_re.match(shift_data.start_time) or not time_re.match(shift_data.end_time):
+        raise HTTPException(status_code=400, detail="Times must be in HH:MM format")
     employee = await execute_query("SELECT shift FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     if employee.get("shift") and employee.get("shift") != "":
-        raise HTTPException(status_code=400, detail="Shift already assigned and cannot be changed. Contact HR for shift changes.")
-    await execute_query("UPDATE users SET shift = %s WHERE id = %s", (shift_data.shift, int(employee_id)))
-    return {"message": f"Shift '{SHIFTS[shift_data.shift]['name']}' assigned successfully"}
+        raise HTTPException(status_code=400, detail="Shift already assigned. Use change shift to update.")
+    shift_str = f"{shift_data.start_time}-{shift_data.end_time}"
+    await execute_query("UPDATE users SET shift = %s WHERE id = %s", (shift_str, int(employee_id)))
+    return {"message": f"Shift {shift_data.start_time}–{shift_data.end_time} assigned", "shift": shift_str}
 
 @admin_router.put("/employees/{employee_id}/shift/change")
 async def change_shift(employee_id: str, shift_data: ShiftAssign, request: Request):
     await require_admin(request)
-    if shift_data.shift not in SHIFTS:
-        raise HTTPException(status_code=400, detail=f"Invalid shift. Available: {list(SHIFTS.keys())}")
-    result = await execute_query("UPDATE users SET shift = %s WHERE id = %s", (shift_data.shift, int(employee_id)))
-    if result == 0:
+    import re
+    time_re = re.compile(r"^\d{2}:\d{2}$")
+    if not time_re.match(shift_data.start_time) or not time_re.match(shift_data.end_time):
+        raise HTTPException(status_code=400, detail="Times must be in HH:MM format")
+    employee = await execute_query("SELECT id FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
+    if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    return {"message": f"Shift changed to '{SHIFTS[shift_data.shift]['name']}'"}
-
+    shift_str = f"{shift_data.start_time}-{shift_data.end_time}"
+    await execute_query("UPDATE users SET shift = %s WHERE id = %s", (shift_str, int(employee_id)))
+    return {"message": f"Shift updated to {shift_data.start_time}–{shift_data.end_time}", "shift": shift_str}
 # ============== REPORTS ==============
 
 @reports_router.get("/attendance/export")

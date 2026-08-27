@@ -60,12 +60,6 @@ const Avatar = ({ url, name, size = "h-8 w-8", textSize = "text-xs" }) => {
   );
 };
 
-const SHIFTS = {
-  general: { name: "General Shift", start: "09:30", end: "17:30" },
-  morning: { name: "Morning Shift", start: "04:00", end: "12:00" },
-  afternoon: { name: "Afternoon Shift", start: "12:00", end: "20:00" },
-  night: { name: "Night Shift", start: "20:00", end: "04:00" }
-};
 
 export default function AdminDashboard() {
   const { user, logout, api } = useAuth();
@@ -98,12 +92,12 @@ export default function AdminDashboard() {
   const [salaryDialogOpen, setSalaryDialogOpen] = useState(false);
   const [generatePayslipOpen, setGeneratePayslipOpen] = useState(false);
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [shiftTimes, setShiftTimes] = useState({ start_time: "09:00", end_time: "18:00" });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [salaryAmount, setSalaryAmount] = useState("");
-  const [selectedShift, setSelectedShift] = useState("general");
   const avatarInputRef = useRef(null);
   const [uploadingAvatarFor, setUploadingAvatarFor] = useState(null);
   const [payslipForm, setPayslipForm] = useState({
@@ -546,19 +540,21 @@ export default function AdminDashboard() {
 
   const handleAssignShift = async () => {
     if (!selectedEmployee) return;
-
+    if (!shiftTimes.start_time || !shiftTimes.end_time) {
+      toast.error("Please set both start and end times");
+      return;
+    }
     setLoading(true);
     try {
-      const endpoint = selectedEmployee.shift 
+      const endpoint = selectedEmployee.shift
         ? `/admin/employees/${selectedEmployee.id}/shift/change`
         : `/admin/employees/${selectedEmployee.id}/shift`;
-      
-      await api.put(endpoint, { shift: selectedShift });
-      toast.success("Shift assigned successfully!");
+      await api.put(endpoint, shiftTimes);
+      toast.success(`Shift set to ${shiftTimes.start_time}–${shiftTimes.end_time}`);
       setShiftDialogOpen(false);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to assign shift");
+      toast.error(error.response?.data?.detail || "Failed to set shift");
     } finally {
       setLoading(false);
     }
@@ -599,7 +595,13 @@ export default function AdminDashboard() {
 
   const openShiftModal = (employee) => {
     setSelectedEmployee(employee);
-    setSelectedShift(employee.shift || "general");
+    // Pre-fill existing shift times if set, otherwise use defaults
+    if (employee.shift && employee.shift.includes("-")) {
+      const [start, end] = employee.shift.split("-");
+      setShiftTimes({ start_time: start.trim(), end_time: end.trim() });
+    } else {
+      setShiftTimes({ start_time: "09:00", end_time: "18:00" });
+    }
     setShiftDialogOpen(true);
   };
 
@@ -1057,12 +1059,12 @@ export default function AdminDashboard() {
                       </td>
                       <td className="table-cell text-slate-600">{emp.department || "—"}</td>
                       <td className="table-cell">
-                        {emp.shift && SHIFTS[emp.shift] ? (
+                        {emp.shift && emp.shift.includes("-") ? (
                           <span className="text-xs px-2.5 py-1 bg-blue-50 text-[#002FA7] rounded-full font-semibold border border-blue-100">
-                            {SHIFTS[emp.shift].name}
+                            {emp.shift}
                           </span>
                         ) : (
-                          <span className="text-slate-300 text-xs">Not assigned</span>
+                          <span className="text-slate-300 text-xs">Not set</span>
                         )}
                       </td>
                       <td className="table-cell">
@@ -1266,45 +1268,60 @@ export default function AdminDashboard() {
               </DialogContent>
             </Dialog>
 
-            {/* Shift Assignment Dialog */}
+            {/* Fixed Time Dialog */}
             <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle className="font-['Outfit']">Assign Shift</DialogTitle>
+                  <DialogTitle className="font-['Outfit']">
+                    {selectedEmployee?.shift ? "Update Work Hours" : "Set Work Hours"}
+                  </DialogTitle>
                 </DialogHeader>
-                <p className="text-sm text-gray-500 -mt-2">
-                  {selectedEmployee?.shift 
-                    ? `Change shift for ${selectedEmployee?.name} (currently: ${SHIFTS[selectedEmployee?.shift]?.name})`
-                    : `Assign shift to ${selectedEmployee?.name}`}
+                <p className="text-sm text-slate-500 -mt-2">
+                  {selectedEmployee?.shift
+                    ? `Update fixed shift times for ${selectedEmployee?.name} (currently: ${selectedEmployee?.shift})`
+                    : `Set fixed start & end times for ${selectedEmployee?.name}`}
                 </p>
                 <div className="space-y-4 pt-4">
-                  <div className="space-y-2">
-                    <Label>Select Shift</Label>
-                    <Select value={selectedShift} onValueChange={setSelectedShift}>
-                      <SelectTrigger data-testid="shift-select">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(SHIFTS).map(([key, value]) => (
-                          <SelectItem key={key} value={key}>
-                            {value.name} ({value.start} - {value.end})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-semibold">Start Time</Label>
+                      <Input
+                        data-testid="shift-start-time"
+                        type="time"
+                        value={shiftTimes.start_time}
+                        onChange={(e) => setShiftTimes(t => ({ ...t, start_time: e.target.value }))}
+                        className="h-11 rounded-xl text-base"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-semibold">End Time</Label>
+                      <Input
+                        data-testid="shift-end-time"
+                        type="time"
+                        value={shiftTimes.end_time}
+                        onChange={(e) => setShiftTimes(t => ({ ...t, end_time: e.target.value }))}
+                        className="h-11 rounded-xl text-base"
+                      />
+                    </div>
                   </div>
-                  {selectedEmployee?.shift && (
-                    <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                      Note: Changing shift requires admin override.
-                    </p>
+                  {shiftTimes.start_time && shiftTimes.end_time && (
+                    <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                      <Clock className="h-4 w-4 text-[#002FA7]" weight="duotone" />
+                      <span className="text-sm font-semibold text-[#002FA7]">
+                        {shiftTimes.start_time} – {shiftTimes.end_time}
+                      </span>
+                      <span className="text-xs text-slate-500 ml-auto">
+                        8 hrs minimum required
+                      </span>
+                    </div>
                   )}
                   <Button
                     data-testid="assign-shift-btn"
                     onClick={handleAssignShift}
                     disabled={loading}
-                    className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                    className="w-full bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl"
                   >
-                    {selectedEmployee?.shift ? "Change Shift" : "Assign Shift"}
+                    {selectedEmployee?.shift ? "Update Work Hours" : "Set Work Hours"}
                   </Button>
                 </div>
               </DialogContent>
