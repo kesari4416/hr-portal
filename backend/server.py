@@ -1136,6 +1136,27 @@ async def get_org_chart(request: Request):
     )
     return rows or []
 
+# ── Org Levels (custom label per depth level) ─────────────────────────────────
+@app.get("/api/org-levels")
+async def get_org_levels(request: Request):
+    await get_current_user(request)
+    rows = await execute_query("SELECT level_num, label FROM org_levels ORDER BY level_num ASC", fetch_all=True)
+    return rows or []
+
+@admin_router.put("/org-levels")
+async def save_org_levels(request: Request):
+    await require_admin(request)
+    body = await request.json()  # list of {level_num, label}
+    now = datetime.now(timezone.utc).isoformat()
+    for item in body:
+        lnum = int(item.get("level_num", 0))
+        label = str(item.get("label", f"Level {lnum + 1}")).strip()
+        await execute_query(
+            "INSERT INTO org_levels (level_num, label, updated_at) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE label=%s, updated_at=%s",
+            (lnum, label, now, label, now)
+        )
+    return {"message": "Org levels saved"}
+
 @admin_router.post("/org-chart")
 async def create_org_node(data: OrgNodeCreate, request: Request):
     await require_admin(request)
@@ -2989,6 +3010,15 @@ async def init_database():
                     description TEXT,
                     sort_order INT DEFAULT 0,
                     created_at VARCHAR(64)
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS org_levels (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    level_num INT NOT NULL,
+                    label VARCHAR(100) NOT NULL DEFAULT 'Level',
+                    updated_at VARCHAR(64),
+                    UNIQUE KEY uk_level_num (level_num)
                 )
             """)
             await cur.execute("""

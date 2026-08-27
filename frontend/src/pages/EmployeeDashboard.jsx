@@ -57,6 +57,7 @@ export default function EmployeeDashboard() {
   const { dark, toggle: toggleTheme } = useTheme();
   const [rolePermissions, setRolePermissions] = useState({});
   const [orgNodes, setOrgNodes] = useState([]);
+  const [orgLevels, setOrgLevels] = useState([]);
   const [attendanceStatus, setAttendanceStatus] = useState({ clocked_in: false, on_break: false, attendance: null });
   const [leaveBalance, setLeaveBalance] = useState({ casual: 0, sick: 0, loss_of_pay: 0 });
   const [leaveRequests, setLeaveRequests] = useState([]);
@@ -139,8 +140,9 @@ export default function EmployeeDashboard() {
       setMyCRs(crRes.data);
       setCrTypes(crTypesRes.data);
       setRolePermissions(rolePermRes.data?.permissions || {});
-      // Fetch org chart separately (non-critical)
+      // Fetch org chart & levels (non-critical)
       api.get("/admin/org-chart").then(r => setOrgNodes(r.data || [])).catch(() => {});
+      api.get("/org-levels").then(r => setOrgLevels(r.data || [])).catch(() => {});
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -1941,7 +1943,7 @@ export default function EmployeeDashboard() {
                 <p className="text-sm mt-1">Contact your admin to build the worker tree</p>
               </div>
             ) : (
-              <OrgTreeView nodes={orgNodes} />
+              <OrgTreeView nodes={orgNodes} levelLabels={orgLevels} />
             )}
           </>
         )}

@@ -154,6 +154,9 @@ export default function AdminDashboard() {
   const [editingOrgNode, setEditingOrgNode] = useState(null);
   const [orgNodeForm, setOrgNodeForm] = useState({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 });
   const orgImageRef = useRef(null);
+  const [orgLevels, setOrgLevels] = useState([]);
+  const [editLevelsOpen, setEditLevelsOpen] = useState(false);
+  const [levelsForm, setLevelsForm] = useState([]);
 
   // Role permissions
   const [rolePerms, setRolePerms] = useState({ manager: {}, employee: {} });
@@ -203,6 +206,7 @@ export default function AdminDashboard() {
         setPayslips(results[12].data);
         // Also fetch org chart and role permissions for admin
         api.get("/admin/org-chart").then(r => setOrgNodes(r.data)).catch(() => {});
+        api.get("/org-levels").then(r => setOrgLevels(r.data || [])).catch(() => {});
         api.get("/admin/role-permissions").then(r => setRolePerms(r.data || { manager: {}, employee: {} })).catch(() => {});
       }
     } catch (error) {
@@ -697,6 +701,33 @@ export default function AdminDashboard() {
       wfh_limit: emp.wfh_limit ?? ""
     });
     setLeaveBalanceOpen(true);
+  };
+
+  const handleSaveOrgLevels = async () => {
+    try {
+      await api.put("/admin/org-levels", levelsForm);
+      setOrgLevels(levelsForm);
+      setEditLevelsOpen(false);
+      toast.success("Level labels saved!");
+    } catch (e) {
+      toast.error("Failed to save level labels");
+    }
+  };
+
+  const openEditLevels = () => {
+    // Pre-populate from current nodes (auto-detect max depth)
+    const maxDepth = Math.max(0, ...orgNodes.map(n => {
+      // rough depth via parent traversal
+      let d = 0, cur = n;
+      while (cur.parent_id) { d++; cur = orgNodes.find(x => x.id === cur.parent_id) || {}; if (d > 10) break; }
+      return d;
+    }));
+    const levels = Array.from({ length: Math.max(maxDepth + 1, orgLevels.length, 3) }, (_, i) => {
+      const existing = orgLevels.find(l => l.level_num === i);
+      return { level_num: i, label: existing?.label || ["Executive", "Director", "Manager", "Team Lead", "Employee", "Associate"][i] || `Level ${i + 1}` };
+    });
+    setLevelsForm(levels);
+    setEditLevelsOpen(true);
   };
 
   const handleSaveLeaveBalance = async () => {
@@ -2897,13 +2928,23 @@ export default function AdminDashboard() {
                 <p className="text-slate-500 mt-1 text-sm">Organizational hierarchy — managers and employees can view</p>
               </div>
               {isAdmin && (
-                <Button
-                  data-testid="add-org-node-btn"
-                  onClick={() => { setEditingOrgNode(null); setOrgNodeForm({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 }); setOrgNodeDialogOpen(true); }}
-                  className="bg-[#002FA7] text-white hover:bg-[#002482] gap-2 rounded-xl"
-                >
-                  <Plus className="h-4 w-4" /> Add Person
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    data-testid="edit-levels-btn"
+                    variant="outline"
+                    onClick={openEditLevels}
+                    className="gap-2 rounded-xl border-slate-300 text-slate-700 hover:border-[#002FA7] hover:text-[#002FA7]"
+                  >
+                    <PencilLine className="h-4 w-4" /> Edit Levels
+                  </Button>
+                  <Button
+                    data-testid="add-org-node-btn"
+                    onClick={() => { setEditingOrgNode(null); setOrgNodeForm({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 }); setOrgNodeDialogOpen(true); }}
+                    className="bg-[#002FA7] text-white hover:bg-[#002482] gap-2 rounded-xl"
+                  >
+                    <Plus className="h-4 w-4" /> Add Person
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -2917,6 +2958,7 @@ export default function AdminDashboard() {
             ) : (
               <OrgTreeNode
                 nodes={orgNodes}
+                levelLabels={orgLevels}
                 isAdmin={isAdmin}
                 onEdit={(node) => { setEditingOrgNode(node); setOrgNodeForm({ employee_name: node.employee_name, job_title: node.job_title || "", description: node.description || "", parent_id: node.parent_id || "", sort_order: node.sort_order || 0 }); setOrgNodeDialogOpen(true); }}
                 onDelete={handleDeleteOrgNode}
@@ -3129,6 +3171,56 @@ export default function AdminDashboard() {
             </Dialog>
           </>
         )}
+
+        {/* Edit Level Labels Dialog */}
+        <Dialog open={editLevelsOpen} onOpenChange={setEditLevelsOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-['Outfit']">Edit Level Labels</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-slate-500 -mt-2">Rename each swimlane level to match your hierarchy.</p>
+            <div className="space-y-3 pt-2 max-h-80 overflow-y-auto pr-1">
+              {levelsForm.map((lvl, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="flex-shrink-0 w-9 h-9 rounded-full bg-[#002FA7] text-white text-xs font-bold flex items-center justify-center">
+                    L{lvl.level_num + 1}
+                  </span>
+                  <Input
+                    data-testid={`level-label-${lvl.level_num}`}
+                    value={lvl.label}
+                    placeholder={`Level ${lvl.level_num + 1}`}
+                    onChange={e => setLevelsForm(f => f.map((l, idx) => idx === i ? { ...l, label: e.target.value } : l))}
+                    className="rounded-xl h-10"
+                  />
+                  {levelsForm.length > 1 && (
+                    <button
+                      onClick={() => setLevelsForm(f => f.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, level_num: idx })))}
+                      className="p-1.5 text-red-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setLevelsForm(f => [...f, { level_num: f.length, label: `Level ${f.length + 1}` }])}
+                className="flex-1 rounded-xl border-dashed border-slate-300 text-slate-600 hover:border-[#002FA7] hover:text-[#002FA7]"
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add Level
+              </Button>
+              <Button
+                data-testid="save-levels-btn"
+                onClick={handleSaveOrgLevels}
+                className="flex-1 bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl"
+              >
+                Save Labels
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* CR Admin Approve Dialog */}
         <CRApproveDialog
