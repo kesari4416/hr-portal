@@ -145,7 +145,7 @@ export default function AdminDashboard() {
 
   // Leave balance edit
   const [leaveBalanceOpen, setLeaveBalanceOpen] = useState(false);
-  const [leaveBalanceForm, setLeaveBalanceForm] = useState({ casual_leave: 0, sick_leave: 0, loss_of_pay: 0, permission_hours: 2, wfh_limit: "" });
+  const [leaveBalanceForm, setLeaveBalanceForm] = useState({ casual_leave: null, sick_leave: null, loss_of_pay: 0, permission_hours: 2, wfh_limit: null });
   const [leaveBalanceEmp, setLeaveBalanceEmp] = useState(null);
 
   // Org chart
@@ -523,11 +523,11 @@ export default function AdminDashboard() {
       name: employee.name,
       department: employee.department || "",
       position: employee.position || "",
-      casual_leave: employee.casual_leave || 12,
-      sick_leave: employee.sick_leave || 3,
-      permission_hours: employee.permission_hours || 2,
+      casual_leave: employee.casual_leave ?? null,
+      sick_leave: employee.sick_leave ?? null,
+      permission_hours: employee.permission_hours ?? null,
       role: employee.role || "employee",
-      wfh_limit: employee.wfh_limit ?? ""
+      wfh_limit: employee.wfh_limit ?? null
     });
     setEditEmployeeOpen(true);
   };
@@ -690,8 +690,8 @@ export default function AdminDashboard() {
   const openLeaveBalanceModal = (emp) => {
     setLeaveBalanceEmp(emp);
     setLeaveBalanceForm({
-      casual_leave: emp.casual_leave ?? 12,
-      sick_leave: emp.sick_leave ?? 6,
+      casual_leave: emp.casual_leave ?? null,
+      sick_leave: emp.sick_leave ?? null,
       loss_of_pay: emp.loss_of_pay ?? 0,
       permission_hours: emp.permission_hours ?? 2,
       wfh_limit: emp.wfh_limit ?? ""
@@ -1342,8 +1342,9 @@ export default function AdminDashboard() {
                       <Input
                         data-testid="edit-casual-leave"
                         type="number"
-                        value={editForm.casual_leave}
-                        onChange={(e) => setEditForm({ ...editForm, casual_leave: parseInt(e.target.value) || 0 })}
+                        placeholder="Not set"
+                        value={editForm.casual_leave ?? ""}
+                        onChange={(e) => setEditForm({ ...editForm, casual_leave: e.target.value === "" ? null : parseFloat(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -1351,8 +1352,9 @@ export default function AdminDashboard() {
                       <Input
                         data-testid="edit-sick-leave"
                         type="number"
-                        value={editForm.sick_leave}
-                        onChange={(e) => setEditForm({ ...editForm, sick_leave: parseInt(e.target.value) || 0 })}
+                        placeholder="Not set"
+                        value={editForm.sick_leave ?? ""}
+                        onChange={(e) => setEditForm({ ...editForm, sick_leave: e.target.value === "" ? null : parseFloat(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">

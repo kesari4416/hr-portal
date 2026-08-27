@@ -833,7 +833,7 @@ async def get_my_shift(request: Request):
 @leave_router.get("/balance")
 async def get_leave_balance(request: Request):
     user = await get_current_user(request)
-    return {"casual": user.get("casual_leave", 12), "sick": user.get("sick_leave", 3), "loss_of_pay": user.get("loss_of_pay", 0), "wfh_limit": user.get("wfh_limit")}
+    return {"casual": user.get("casual_leave"), "sick": user.get("sick_leave"), "loss_of_pay": user.get("loss_of_pay", 0), "wfh_limit": user.get("wfh_limit")}
 
 @leave_router.post("/request")
 async def create_leave_request(leave_data: LeaveRequest, request: Request):
@@ -981,12 +981,13 @@ async def create_employee(user_data: UserRegister, request: Request):
         last_id=True
     )
 
-    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": 12, "sick_leave": 3, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code, "wfh_limit": None}
+    return {"id": str(user_id), "email": email, "name": user_data.name, "role": role, "department": user_data.department, "position": user_data.position, "avatar_url": "", "casual_leave": None, "sick_leave": None, "loss_of_pay": 0, "permission_hours": MONTHLY_PERMISSION_HOURS, "half_day_leave": 0, "shift": "", "employee_code": employee_code, "wfh_limit": None}
 
 @admin_router.put("/employees/{employee_id}")
 async def update_employee(employee_id: str, update_data: EmployeeUpdate, request: Request):
     await require_admin(request)
-    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    # Use model_fields_set so explicitly-sent null values are included (to clear fields)
+    update_dict = {k: v for k, v in update_data.model_dump().items() if k in update_data.model_fields_set}
     if not update_dict:
         raise HTTPException(status_code=400, detail="No update data provided")
 
@@ -1088,17 +1089,10 @@ async def update_leave_balance(employee_id: str, data: LeaveBalanceUpdate, reque
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     fields, values = [], []
-    if data.casual_leave is not None:
-        fields.append("casual_leave = %s"); values.append(data.casual_leave)
-    if data.sick_leave is not None:
-        fields.append("sick_leave = %s"); values.append(data.sick_leave)
-    if data.loss_of_pay is not None:
-        fields.append("loss_of_pay = %s"); values.append(data.loss_of_pay)
-    if data.permission_hours is not None:
-        fields.append("permission_hours = %s"); values.append(data.permission_hours)
-    # wfh_limit: if field was sent (even as null), update it (null = remove limit)
-    if "wfh_limit" in data.model_fields_set:
-        fields.append("wfh_limit = %s"); values.append(data.wfh_limit)
+    # All fields: sent as null = clear to null, not sent = skip
+    for field in ["casual_leave", "sick_leave", "loss_of_pay", "permission_hours", "wfh_limit"]:
+        if field in data.model_fields_set:
+            fields.append(f"{field} = %s"); values.append(getattr(data, field))
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     values.append(int(employee_id))
@@ -2779,8 +2773,8 @@ async def init_database():
                     position VARCHAR(255) DEFAULT 'Employee',
                     avatar_url TEXT,
                     created_at VARCHAR(64),
-                    casual_leave FLOAT DEFAULT 12,
-                    sick_leave FLOAT DEFAULT 3,
+                    casual_leave FLOAT DEFAULT NULL,
+                    sick_leave FLOAT DEFAULT NULL,
                     loss_of_pay FLOAT DEFAULT 0,
                     permission_hours FLOAT DEFAULT 2,
                     half_day_leave FLOAT DEFAULT 0,

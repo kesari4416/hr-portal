@@ -848,8 +848,8 @@ export default function EmployeeDashboard() {
                     </div>
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Casual Leave</span>
                   </div>
-                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.casual}</p>
-                  <p className="text-xs text-slate-400 mt-1">days remaining</p>
+                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.casual ?? <span className="text-base text-slate-400">Not set</span>}</p>
+                  <p className="text-xs text-slate-400 mt-1">{leaveBalance.casual !== null && leaveBalance.casual !== undefined ? "days remaining" : "contact admin"}</p>
                 </div>
 
                 <div className="metric-card">
@@ -859,8 +859,8 @@ export default function EmployeeDashboard() {
                     </div>
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sick Leave</span>
                   </div>
-                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.sick}</p>
-                  <p className="text-xs text-slate-400 mt-1">days remaining</p>
+                  <p className="text-3xl font-bold text-slate-900">{leaveBalance.sick ?? <span className="text-base text-slate-400">Not set</span>}</p>
+                  <p className="text-xs text-slate-400 mt-1">{leaveBalance.sick !== null && leaveBalance.sick !== undefined ? "days remaining" : "contact admin"}</p>
                 </div>
 
                 {/* Permission Hours Card */}
@@ -919,8 +919,8 @@ export default function EmployeeDashboard() {
                               <SelectValue placeholder="Select leave type" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="casual">Casual Leave ({leaveBalance.casual} left)</SelectItem>
-                              <SelectItem value="sick">Sick Leave ({leaveBalance.sick} left)</SelectItem>
+                              <SelectItem value="casual">Casual Leave ({leaveBalance.casual ?? "not set"} left)</SelectItem>
+                              <SelectItem value="sick">Sick Leave ({leaveBalance.sick ?? "not set"} left)</SelectItem>
                               <SelectItem value="loss_of_pay">Loss of Pay</SelectItem>
                             </SelectContent>
                           </Select>
