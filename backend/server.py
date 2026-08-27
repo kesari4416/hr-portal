@@ -34,64 +34,32 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 ROOT_DIR = Path(__file__).parent
 
-# ── Emergent Object Storage ──────────────────────────────────────────────────
+# ── Image Storage via MySQL ────────────────────────────────────────────────────
 import uuid as _uuid
-
-STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
-STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
-EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
-APP_NAME = "sparkcurv-hr"
-_storage_key = None
-
-async def _get_storage_key(force: bool = False) -> str:
-    global _storage_key
-    if _storage_key and not force:
-        return _storage_key
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY})
-        resp.raise_for_status()
-        _storage_key = resp.json()["storage_key"]
-    return _storage_key
-
-async def _put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = await _get_storage_key()
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.put(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key, "Content-Type": content_type},
-            content=data
-        )
-        if resp.status_code == 404:
-            key = await _get_storage_key(force=True)
-            resp = await client.put(
-                f"{STORAGE_URL}/objects/{path}",
-                headers={"X-Storage-Key": key, "Content-Type": content_type},
-                content=data
-            )
-        logging.info(f"_put_object {path} → {resp.status_code}")
-        resp.raise_for_status()
-        return resp.json()
-
-async def _get_object(path: str) -> tuple:
-    key = await _get_storage_key()
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.get(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key}
-        )
-        if resp.status_code == 404:
-            key = await _get_storage_key(force=True)
-            resp = await client.get(
-                f"{STORAGE_URL}/objects/{path}",
-                headers={"X-Storage-Key": key}
-            )
-        resp.raise_for_status()
-        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+import base64
 
 MIME_TYPES = {
     "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
     "gif": "image/gif", "webp": "image/webp"
 }
+
+async def _save_image_db(data: bytes, filename: str) -> str:
+    """Store image bytes in the media table, return unique media_id."""
+    media_id = _uuid.uuid4().hex
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    content_type = MIME_TYPES.get(ext, "image/jpeg")
+    await execute_query(
+        "INSERT INTO media (media_id, filename, content_type, data) VALUES (%s, %s, %s, %s)",
+        (media_id, filename, content_type, data)
+    )
+    return media_id
+
+async def _get_image_db(media_id: str) -> tuple:
+    """Retrieve image bytes and content_type from media table."""
+    row = await execute_query("SELECT data, content_type FROM media WHERE media_id = %s", (media_id,), fetch_one=True)
+    if not row:
+        raise FileNotFoundError(f"Media not found: {media_id}")
+    return bytes(row["data"]), row["content_type"]
 # ─────────────────────────────────────────────────────────────────────────────
 
 # MySQL connection pool
@@ -1075,35 +1043,30 @@ async def upload_employee_avatar(employee_id: str, request: Request, file: Uploa
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     
-    # Upload to Emergent Object Storage
+    # Save to MySQL media table
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
-    storage_path = f"{APP_NAME}/avatars/avatar_{employee_id}_{_uuid.uuid4().hex[:8]}.{ext}"
-    content_type = MIME_TYPES.get(ext, "image/jpeg")
-    
+    filename = f"avatar_{employee_id}_{_uuid.uuid4().hex[:8]}.{ext}"
+
     try:
-        result = await _put_object(storage_path, contents, content_type)
-        stored_path = result.get("path", storage_path)
+        media_id = await _save_image_db(contents, filename)
     except Exception as e:
-        logging.error(f"Object storage upload failed: {e}")
+        logging.error(f"Avatar upload failed: {e}")
         raise HTTPException(status_code=500, detail="Avatar upload failed")
-    
-    # Store path as backend proxy URL
-    avatar_url = f"/api/admin/avatars/{stored_path}"
-    
+
+    avatar_url = f"/api/admin/avatars/{media_id}"
     await execute_query("UPDATE users SET avatar_url = %s WHERE id = %s", (avatar_url, int(employee_id)))
-    
     return {"message": "Avatar uploaded", "avatar_url": avatar_url}
 
-@admin_router.get("/avatars/{path:path}")
-async def serve_avatar(path: str):
-    """Proxy avatar images from Emergent Object Storage."""
+@admin_router.get("/avatars/{media_id}")
+async def serve_avatar(media_id: str):
+    """Serve avatar images from MySQL media table."""
     try:
-        data, content_type = await _get_object(path)
+        data, content_type = await _get_image_db(media_id)
         return Response(content=data, media_type=content_type, headers={
             "Cache-Control": "public, max-age=86400"
         })
     except Exception as e:
-        logging.error(f"Avatar fetch failed for {path}: {e}")
+        logging.error(f"Avatar fetch failed for {media_id}: {e}")
         raise HTTPException(status_code=404, detail="Avatar not found")
 
 # ── Leave Balance ─────────────────────────────────────────────────────────────
@@ -1242,15 +1205,13 @@ async def upload_org_node_image(node_id: int, file: UploadFile = File(...), requ
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
-    storage_path = f"{APP_NAME}/org/{node_id}_{_uuid.uuid4().hex[:8]}.{ext}"
-    content_type = MIME_TYPES.get(ext, "image/jpeg")
+    filename = f"org_{node_id}_{_uuid.uuid4().hex[:8]}.{ext}"
     try:
-        result = await _put_object(storage_path, contents, content_type)
-        stored_path = result.get("path", storage_path)
+        media_id = await _save_image_db(contents, filename)
     except Exception as e:
         logging.error(f"Org node image upload failed for node {node_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
-    image_url = f"/api/admin/avatars/{stored_path}"
+    image_url = f"/api/admin/avatars/{media_id}"
     await execute_query("UPDATE org_chart SET image_url=%s WHERE id=%s", (image_url, node_id))
     return {"image_url": image_url}
 
@@ -3071,6 +3032,17 @@ async def init_database():
                     feature_key VARCHAR(100) NOT NULL,
                     enabled TINYINT DEFAULT 1,
                     UNIQUE KEY uk_role_feature (role, feature_key)
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS media (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    media_id VARCHAR(64) NOT NULL,
+                    filename VARCHAR(255) NOT NULL,
+                    content_type VARCHAR(64) NOT NULL DEFAULT 'image/jpeg',
+                    data MEDIUMBLOB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_media_id (media_id)
                 )
             """)
 
