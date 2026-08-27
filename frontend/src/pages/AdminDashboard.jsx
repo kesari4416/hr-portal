@@ -118,7 +118,8 @@ export default function AdminDashboard() {
     name: "",
     department: "",
     position: "",
-    role: "employee"
+    role: "employee",
+    employee_code: ""
   });
 
   const [editForm, setEditForm] = useState({
@@ -129,7 +130,8 @@ export default function AdminDashboard() {
     sick_leave: 0,
     permission_hours: 2,
     role: "employee",
-    wfh_limit: null
+    wfh_limit: null,
+    employee_code: ""
   });
   const [changeRequests, setChangeRequests] = useState([]);
   const [crActionNotes, setCrActionNotes] = useState("");
@@ -265,13 +267,32 @@ export default function AdminDashboard() {
       await api.post("/admin/employees", newEmployee);
       toast.success("Employee added successfully!");
       setAddEmployeeOpen(false);
-      setNewEmployee({ email: "", password: "", name: "", department: "", position: "", role: "employee" });
+      setNewEmployee({ email: "", password: "", name: "", department: "", position: "", role: "employee", employee_code: "" });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to add employee");
     } finally {
       setLoading(false);
     }
+  };
+
+  const openAddEmployeeModal = async () => {
+    try {
+      const res = await api.get("/admin/next-employee-code");
+      setNewEmployee({ email: "", password: "", name: "", department: "", position: "", role: "employee", employee_code: res.data.next_code || "" });
+    } catch {
+      setNewEmployee({ email: "", password: "", name: "", department: "", position: "", role: "employee", employee_code: "" });
+    }
+    setAddEmployeeOpen(true);
+  };
+
+  const handleAutoGenerateCode = async (target) => {
+    try {
+      const res = await api.get("/admin/next-employee-code");
+      const code = res.data.next_code || "";
+      if (target === "new") setNewEmployee(f => ({ ...f, employee_code: code }));
+      else setEditForm(f => ({ ...f, employee_code: code }));
+    } catch { /* silent */ }
   };
 
   const handleEditEmployee = async () => {
@@ -531,7 +552,8 @@ export default function AdminDashboard() {
       sick_leave: employee.sick_leave ?? null,
       permission_hours: employee.permission_hours ?? null,
       role: employee.role || "employee",
-      wfh_limit: employee.wfh_limit ?? null
+      wfh_limit: employee.wfh_limit ?? null,
+      employee_code: employee.employee_code || ""
     });
     setEditEmployeeOpen(true);
   };
@@ -1100,7 +1122,7 @@ export default function AdminDashboard() {
               </div>
               <Dialog open={addEmployeeOpen} onOpenChange={setAddEmployeeOpen}>
                 <DialogTrigger asChild>
-                  <Button data-testid="add-employee-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
+                  <Button data-testid="add-employee-btn" onClick={openAddEmployeeModal} className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
                     <UserPlus className="h-4 w-4" weight="bold" />
                     Add Employee
                   </Button>
@@ -1171,6 +1193,28 @@ export default function AdminDashboard() {
                           <SelectItem value="manager">Manager</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Employee ID</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          data-testid="new-employee-code"
+                          placeholder="e.g. SC24005"
+                          value={newEmployee.employee_code}
+                          onChange={(e) => setNewEmployee({ ...newEmployee, employee_code: e.target.value.toUpperCase() })}
+                          className="font-mono"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          data-testid="auto-gen-code-btn"
+                          onClick={() => handleAutoGenerateCode("new")}
+                          className="shrink-0 border-[#002FA7] text-[#002FA7] hover:bg-[#002FA7] hover:text-white text-xs px-3"
+                        >
+                          Auto
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Leave blank to auto-assign next ID</p>
                     </div>
                     <Button
                       data-testid="submit-new-employee"
@@ -1410,6 +1454,27 @@ export default function AdminDashboard() {
                         <SelectItem value="manager">Manager</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Employee ID</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        data-testid="edit-employee-code"
+                        placeholder="e.g. SC24005"
+                        value={editForm.employee_code}
+                        onChange={(e) => setEditForm({ ...editForm, employee_code: e.target.value.toUpperCase() })}
+                        className="font-mono"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        data-testid="auto-gen-edit-code-btn"
+                        onClick={() => handleAutoGenerateCode("edit")}
+                        className="shrink-0 border-[#002FA7] text-[#002FA7] hover:bg-[#002FA7] hover:text-white text-xs px-3"
+                      >
+                        Auto
+                      </Button>
+                    </div>
                   </div>
                   <Button
                     data-testid="save-employee-changes"

@@ -329,6 +329,7 @@ class UserRegister(BaseModel):
     department: Optional[str] = "General"
     position: Optional[str] = "Employee"
     role: Optional[str] = "employee"
+    employee_code: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -351,6 +352,7 @@ class EmployeeUpdate(BaseModel):
     shift: Optional[str] = None
     role: Optional[str] = None
     wfh_limit: Optional[int] = None
+    employee_code: Optional[str] = None
 
 class PermissionRequest(BaseModel):
     duration_minutes: int
@@ -953,6 +955,18 @@ async def get_all_employees(request: Request):
         result.append(e)
     return result
 
+@admin_router.get("/next-employee-code")
+async def get_next_employee_code(request: Request):
+    await require_admin(request)
+    max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
+    next_num = 24001
+    if max_code and max_code["employee_code"]:
+        try:
+            next_num = int(max_code["employee_code"][2:]) + 1
+        except ValueError:
+            pass
+    return {"next_code": f"SC{next_num}"}
+
 @admin_router.post("/employees")
 async def create_employee(user_data: UserRegister, request: Request):
     await require_admin(request)
@@ -964,15 +978,22 @@ async def create_employee(user_data: UserRegister, request: Request):
     role = user_data.role if user_data.role in ("employee", "manager") else "employee"
     hashed = hash_password(user_data.password)
 
-    # Generate next employee code (SC24001, SC24002, ...)
-    max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
-    next_num = 24001
-    if max_code and max_code["employee_code"]:
-        try:
-            next_num = int(max_code["employee_code"][2:]) + 1
-        except ValueError:
-            pass
-    employee_code = f"SC{next_num}"
+    # Generate next employee code (SC24001, SC24002, ...) or use provided
+    if user_data.employee_code and user_data.employee_code.strip():
+        custom_code = user_data.employee_code.strip().upper()
+        dup = await execute_query("SELECT id FROM users WHERE employee_code = %s", (custom_code,), fetch_one=True)
+        if dup:
+            raise HTTPException(status_code=400, detail=f"Employee code '{custom_code}' already exists")
+        employee_code = custom_code
+    else:
+        max_code = await execute_query("SELECT employee_code FROM users WHERE employee_code LIKE 'SC%' ORDER BY employee_code DESC LIMIT 1", fetch_one=True)
+        next_num = 24001
+        if max_code and max_code["employee_code"]:
+            try:
+                next_num = int(max_code["employee_code"][2:]) + 1
+            except ValueError:
+                pass
+        employee_code = f"SC{next_num}"
 
     user_id = await execute_query(
         """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, employee_code, wfh_limit)
@@ -994,6 +1015,14 @@ async def update_employee(employee_id: str, update_data: EmployeeUpdate, request
     # Validate role if being changed
     if "role" in update_dict and update_dict["role"] not in ("employee", "manager", "admin"):
         raise HTTPException(status_code=400, detail="Invalid role")
+
+    # Validate employee_code uniqueness if being changed
+    if "employee_code" in update_dict and update_dict["employee_code"]:
+        code = update_dict["employee_code"].strip().upper()
+        update_dict["employee_code"] = code
+        dup = await execute_query("SELECT id FROM users WHERE employee_code = %s AND id != %s", (code, int(employee_id)), fetch_one=True)
+        if dup:
+            raise HTTPException(status_code=400, detail=f"Employee code '{code}' already assigned to another employee")
 
     set_clause = ", ".join([f"{k} = %s" for k in update_dict])
     values = list(update_dict.values()) + [int(employee_id)]

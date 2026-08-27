@@ -88,7 +88,7 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ **Worker Org Tree** (Feb 2026): Visual hierarchy with images via Object Storage
 - ✅ **Role-Based Tab Access** (Feb 2026): Admin toggles which tabs Manager/Employee can see; employee sidebar filters live
 - ✅ **CR Auto-Apply** (Feb 2026): On admin approval, Salary Revision / Leave Adjustment / Shift Change auto-apply to DB; admin enters apply value in review dialog; employees can specify requested value when creating such CRs
-- ✅ **Swimlane Org Tree + Explicit Level Assignment** (Aug 2026): Admin assigns L1/L2/L3 levels explicitly to each org node (no parent-depth inference); `org_levels` table stores custom label names; `OrgTreeNode.jsx` groups by `level_num`; Admin form has Level dropdown; empty swimlane rows are skipped
+- ✅ **Employee ID (employee_code)** (Aug 2026): Visible in sidebar for employees; Admin Add form auto-fetches next available code (SC24001 series) with manual override; Edit form shows current code with inline "Auto" button; duplicate code rejection on both create and update
 
 ## Pending Items (Prioritized)
 
