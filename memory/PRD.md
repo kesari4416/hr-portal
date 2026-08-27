@@ -72,6 +72,8 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ Holiday list
 - ✅ Admin: Employee management (add/edit/delete/assign shift/set salary/reset password/upload avatar)
 - ✅ **GUI Redesign** (Feb 2026): Rebranded Sparkcurve → Sparkcurv, modern split login page, updated CSS design system (rounded-xl cards, improved nav, better badges/tables/buttons), consistent layout across all tabs
+- ✅ **Dark Mode Toggle** (Feb 2026): Full dark/light mode toggle in sidebar footer of both dashboards. CSS variable-based design system flips entire app. Preference persisted in localStorage. Dark palette: slate-950 page bg, slate-900 sidebar, slate-800 cards, blue-accented nav active state.
+- ✅ **Avatar Storage** (Feb 2026): Migrated from pod-local file storage → Emergent Object Storage (`/api/admin/avatars/{path}` proxy endpoint)
 
 ## Pending Items (Prioritized)
 

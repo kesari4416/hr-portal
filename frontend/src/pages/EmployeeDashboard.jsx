@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useTheme } from "../contexts/ThemeContext";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
@@ -15,7 +16,7 @@ import {
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
   CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
-  GitPullRequest, Plus
+  GitPullRequest, Plus, Sun, Moon
 } from "@phosphor-icons/react";
 
 // Convert decimal hours (e.g., 8.57) to "Xh Ym" format
@@ -52,6 +53,7 @@ const Avatar = ({ url, name, size = "h-10 w-10", textSize = "text-sm" }) => {
 
 export default function EmployeeDashboard() {
   const { user, logout, api } = useAuth();
+  const { dark, toggle: toggleTheme } = useTheme();
   const [attendanceStatus, setAttendanceStatus] = useState({ clocked_in: false, on_break: false, attendance: null });
   const [leaveBalance, setLeaveBalance] = useState({ casual: 0, sick: 0, loss_of_pay: 0 });
   const [leaveRequests, setLeaveRequests] = useState([]);
@@ -425,11 +427,11 @@ export default function EmployeeDashboard() {
   const isShortDay = currentWorkingHours < 8 && attendanceStatus.clocked_in;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
+    <div className="min-h-screen transition-colors duration-200" style={{ background: 'var(--bg-page)' }}>
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 w-64 h-screen bg-white border-r border-slate-200 flex flex-col" style={{ boxShadow: '4px 0 24px rgba(15,23,42,0.04)' }}>
+      <aside className="fixed left-0 top-0 w-64 h-screen flex flex-col transition-colors duration-200" style={{ background: 'var(--sidebar-bg)', borderRight: '1px solid var(--sidebar-border)', boxShadow: '4px 0 24px rgba(15,23,42,0.04)' }}>
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-slate-100">
+        <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
           <div className="flex items-center gap-3">
             <div
               className="flex items-center justify-center rounded-xl flex-shrink-0"
@@ -515,13 +517,29 @@ export default function EmployeeDashboard() {
         </nav>
 
         {/* User Info */}
-        <div className="p-4 border-t border-slate-100">
+        <div className="p-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
           <div className="flex items-center gap-3 mb-3 px-1">
             <Avatar url={user?.avatar_url} name={user?.name} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
               <p className="text-xs text-slate-400 truncate">{user?.department}</p>
             </div>
+            {/* Theme Toggle */}
+            <button
+              data-testid="theme-toggle-emp"
+              onClick={toggleTheme}
+              title={dark ? "Switch to light mode" : "Switch to dark mode"}
+              className="flex items-center justify-center w-8 h-8 rounded-lg transition-all flex-shrink-0"
+              style={{
+                background: dark ? 'rgba(79,121,232,0.15)' : '#F1F5F9',
+                color: dark ? '#93C5FD' : '#64748B'
+              }}
+            >
+              {dark
+                ? <Sun style={{ width: 15, height: 15 }} weight="fill" />
+                : <Moon style={{ width: 15, height: 15 }} weight="duotone" />
+              }
+            </button>
           </div>
           <Button
             data-testid="logout-btn"

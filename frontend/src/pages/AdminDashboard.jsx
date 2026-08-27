@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useTheme } from "../contexts/ThemeContext";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
@@ -11,7 +12,7 @@ import {
   SignOut, Users, CalendarCheck, Clock, House, 
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
-  GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning
+  GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning, Sun, Moon
 } from "@phosphor-icons/react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
@@ -68,6 +69,7 @@ const SHIFTS = {
 
 export default function AdminDashboard() {
   const { user, logout, api } = useAuth();
+  const { dark, toggle: toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState("overview");
   const [analytics, setAnalytics] = useState(null);
   const [employees, setEmployees] = useState([]);
@@ -669,11 +671,11 @@ export default function AdminDashboard() {
   const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
+    <div className="min-h-screen transition-colors duration-200" style={{ background: 'var(--bg-page)' }}>
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 w-64 h-screen bg-white border-r border-slate-200 flex flex-col" style={{ boxShadow: '4px 0 24px rgba(15,23,42,0.04)' }}>
+      <aside className="fixed left-0 top-0 w-64 h-screen flex flex-col transition-colors duration-200" style={{ background: 'var(--sidebar-bg)', borderRight: '1px solid var(--sidebar-border)', boxShadow: '4px 0 24px rgba(15,23,42,0.04)' }}>
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-slate-100">
+        <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
           <div className="flex items-center gap-3">
             <div
               className="flex items-center justify-center rounded-xl flex-shrink-0"
@@ -710,7 +712,7 @@ export default function AdminDashboard() {
             )}
           </button>
           {notifDropdownOpen && notifications.items.length > 0 && (
-            <div className="mx-2 mt-1 mb-2 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+            <div className="mx-2 mt-1 mb-2 rounded-xl shadow-lg overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--border-color)' }}>
               {notifications.items.map((item, i) => (
                 <button
                   key={i}
@@ -752,19 +754,35 @@ export default function AdminDashboard() {
         </nav>
 
         {/* User Info */}
-        <div className="p-4 border-t border-slate-100">
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3 mb-3 px-1">
             <Avatar url={user?.avatar_url} name={user?.name} size="h-9 w-9" textSize="text-xs" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
               <p className="text-xs text-slate-400 truncate">Administrator</p>
             </div>
+            {/* Theme Toggle */}
+            <button
+              data-testid="theme-toggle"
+              onClick={toggleTheme}
+              title={dark ? "Switch to light mode" : "Switch to dark mode"}
+              className="flex items-center justify-center w-8 h-8 rounded-lg transition-all flex-shrink-0"
+              style={{
+                background: dark ? 'rgba(79,121,232,0.15)' : '#F1F5F9',
+                color: dark ? '#93C5FD' : '#64748B'
+              }}
+            >
+              {dark
+                ? <Sun style={{ width: 15, height: 15 }} weight="fill" />
+                : <Moon style={{ width: 15, height: 15 }} weight="duotone" />
+              }
+            </button>
           </div>
           <Button
             data-testid="admin-logout-btn"
             onClick={logout}
             variant="outline"
-            className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-medium h-9"
+            className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-medium h-9 dark:border-slate-700 dark:hover:bg-slate-800"
           >
             <SignOut className="h-4 w-4" />
             Sign Out
