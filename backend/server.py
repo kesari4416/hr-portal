@@ -1117,6 +1117,7 @@ class OrgNodeCreate(BaseModel):
     image_url: Optional[str] = ""
     description: Optional[str] = ""
     parent_id: Optional[int] = None
+    level_num: Optional[int] = 0
     sort_order: Optional[int] = 0
 
 class OrgNodeUpdate(BaseModel):
@@ -1125,6 +1126,7 @@ class OrgNodeUpdate(BaseModel):
     image_url: Optional[str] = None
     description: Optional[str] = None
     parent_id: Optional[int] = None
+    level_num: Optional[int] = None
     sort_order: Optional[int] = None
 
 @admin_router.get("/org-chart")
@@ -1146,11 +1148,16 @@ async def get_org_levels(request: Request):
 @admin_router.put("/org-levels")
 async def save_org_levels(request: Request):
     await require_admin(request)
-    body = await request.json()  # list of {level_num, label}
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(body, list):
+        raise HTTPException(status_code=400, detail="Expected a list of {level_num, label}")
     now = datetime.now(timezone.utc).isoformat()
     for item in body:
         lnum = int(item.get("level_num", 0))
-        label = str(item.get("label", f"Level {lnum + 1}")).strip()
+        label = str(item.get("label", f"Level {lnum + 1}")).strip() or f"Level {lnum + 1}"
         await execute_query(
             "INSERT INTO org_levels (level_num, label, updated_at) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE label=%s, updated_at=%s",
             (lnum, label, now, label, now)
@@ -1163,8 +1170,9 @@ async def create_org_node(data: OrgNodeCreate, request: Request):
     from datetime import datetime, timezone as tz
     now = datetime.now(tz.utc).isoformat()
     result = await execute_query(
-        "INSERT INTO org_chart (parent_id, employee_name, job_title, image_url, description, sort_order, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (data.parent_id, data.employee_name, data.job_title, data.image_url, data.description, data.sort_order, now)
+        "INSERT INTO org_chart (parent_id, employee_name, job_title, image_url, description, level_num, sort_order, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (data.parent_id, data.employee_name, data.job_title, data.image_url, data.description, data.level_num or 0, data.sort_order, now),
+        last_id=True
     )
     return {"id": result, "message": "Node created"}
 
@@ -1176,7 +1184,8 @@ async def update_org_node(node_id: int, data: OrgNodeUpdate, request: Request):
     if data.job_title is not None: fields.append("job_title=%s"); values.append(data.job_title)
     if data.image_url is not None: fields.append("image_url=%s"); values.append(data.image_url)
     if data.description is not None: fields.append("description=%s"); values.append(data.description)
-    if data.parent_id is not None: fields.append("parent_id=%s"); values.append(data.parent_id)
+    if "parent_id" in data.model_fields_set: fields.append("parent_id=%s"); values.append(data.parent_id)
+    if data.level_num is not None: fields.append("level_num=%s"); values.append(data.level_num)
     if data.sort_order is not None: fields.append("sort_order=%s"); values.append(data.sort_order)
     if not fields:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -3008,6 +3017,7 @@ async def init_database():
                     job_title VARCHAR(255),
                     image_url TEXT,
                     description TEXT,
+                    level_num INT DEFAULT 0,
                     sort_order INT DEFAULT 0,
                     created_at VARCHAR(64)
                 )
@@ -3113,6 +3123,16 @@ async def startup():
                     logger.info(f"Added {col_name} to change_requests")
                 except Exception as e:
                     logger.warning(f"Could not add {col_name} to change_requests: {e}")
+
+        # Migration: Add level_num to org_chart
+        try:
+            await execute_query("SELECT level_num FROM org_chart LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE org_chart ADD COLUMN level_num INT DEFAULT 0")
+                logger.info("Added level_num to org_chart")
+            except Exception as e:
+                logger.warning(f"Could not add level_num to org_chart: {e}")
 
         # Backfill employee_code for existing users without one
         try:

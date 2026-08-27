@@ -152,7 +152,7 @@ export default function AdminDashboard() {
   const [orgNodes, setOrgNodes] = useState([]);
   const [orgNodeDialogOpen, setOrgNodeDialogOpen] = useState(false);
   const [editingOrgNode, setEditingOrgNode] = useState(null);
-  const [orgNodeForm, setOrgNodeForm] = useState({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 });
+  const [orgNodeForm, setOrgNodeForm] = useState({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0, level_num: 0 });
   const orgImageRef = useRef(null);
   const [orgLevels, setOrgLevels] = useState([]);
   const [editLevelsOpen, setEditLevelsOpen] = useState(false);
@@ -752,7 +752,8 @@ export default function AdminDashboard() {
       const payload = {
         ...orgNodeForm,
         parent_id: orgNodeForm.parent_id ? parseInt(orgNodeForm.parent_id) : null,
-        sort_order: parseInt(orgNodeForm.sort_order) || 0
+        sort_order: parseInt(orgNodeForm.sort_order) || 0,
+        level_num: parseInt(orgNodeForm.level_num) || 0
       };
       if (editingOrgNode) {
         await api.put(`/admin/org-chart/${editingOrgNode.id}`, payload);
@@ -2939,7 +2940,7 @@ export default function AdminDashboard() {
                   </Button>
                   <Button
                     data-testid="add-org-node-btn"
-                    onClick={() => { setEditingOrgNode(null); setOrgNodeForm({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0 }); setOrgNodeDialogOpen(true); }}
+                    onClick={() => { setEditingOrgNode(null); setOrgNodeForm({ employee_name: "", job_title: "", description: "", parent_id: "", sort_order: 0, level_num: 0 }); setOrgNodeDialogOpen(true); }}
                     className="bg-[#002FA7] text-white hover:bg-[#002482] gap-2 rounded-xl"
                   >
                     <Plus className="h-4 w-4" /> Add Person
@@ -2960,7 +2961,7 @@ export default function AdminDashboard() {
                 nodes={orgNodes}
                 levelLabels={orgLevels}
                 isAdmin={isAdmin}
-                onEdit={(node) => { setEditingOrgNode(node); setOrgNodeForm({ employee_name: node.employee_name, job_title: node.job_title || "", description: node.description || "", parent_id: node.parent_id || "", sort_order: node.sort_order || 0 }); setOrgNodeDialogOpen(true); }}
+                onEdit={(node) => { setEditingOrgNode(node); setOrgNodeForm({ employee_name: node.employee_name, job_title: node.job_title || "", description: node.description || "", parent_id: node.parent_id || "", sort_order: node.sort_order || 0, level_num: node.level_num ?? 0 }); setOrgNodeDialogOpen(true); }}
                 onDelete={handleDeleteOrgNode}
                 onImageUpload={handleOrgNodeImageUpload}
               />
@@ -2980,6 +2981,24 @@ export default function AdminDashboard() {
                   <div className="space-y-2">
                     <Label>Job Title</Label>
                     <Input data-testid="org-title-input" value={orgNodeForm.job_title} onChange={e => setOrgNodeForm(f => ({ ...f, job_title: e.target.value }))} placeholder="e.g. Senior Engineer" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Level <span className="text-red-500">*</span></Label>
+                    <Select data-testid="org-level-select" value={String(orgNodeForm.level_num)} onValueChange={v => setOrgNodeForm(f => ({ ...f, level_num: parseInt(v) }))}>
+                      <SelectTrigger data-testid="org-level-select-trigger" className="rounded-xl"><SelectValue placeholder="Select level" /></SelectTrigger>
+                      <SelectContent>
+                        {orgLevels.length > 0
+                          ? orgLevels.map(l => (
+                              <SelectItem key={l.level_num} value={String(l.level_num)}>
+                                L{l.level_num + 1} — {l.label}
+                              </SelectItem>
+                            ))
+                          : [0, 1, 2, 3, 4].map(i => (
+                              <SelectItem key={i} value={String(i)}>L{i + 1}</SelectItem>
+                            ))
+                        }
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Reports To (Parent)</Label>

@@ -21,31 +21,20 @@ function getLabel(depth, levelLabels) {
   return getStyle(depth).defaultLabel;
 }
 
-// BFS — groups nodes by depth, attaches parentName
+// Groups nodes by their assigned level_num (admin-assigned, not parent depth)
 function buildLevels(flatNodes) {
   if (!flatNodes || flatNodes.length === 0) return [];
-  const nodeMap = {};
-  flatNodes.forEach(n => { nodeMap[n.id] = { ...n, children: [] }; });
+  const grouped = {};
   flatNodes.forEach(n => {
-    if (n.parent_id && nodeMap[n.parent_id]) {
-      nodeMap[n.parent_id].children.push(nodeMap[n.id]);
-    }
+    const lvl = n.level_num ?? 0;
+    if (!grouped[lvl]) grouped[lvl] = [];
+    // Attach parentName
+    const parent = flatNodes.find(p => p.id === n.parent_id);
+    grouped[lvl].push({ ...n, parentName: parent ? parent.employee_name : null });
   });
-  const levels = [];
-  const visited = new Set();
-  const roots = flatNodes.filter(n => !n.parent_id || !nodeMap[n.parent_id]);
-  const queue = roots.map(r => ({ node: nodeMap[r.id], depth: 0, parentName: null }));
-  while (queue.length > 0) {
-    const { node, depth, parentName } = queue.shift();
-    if (visited.has(node.id)) continue;
-    visited.add(node.id);
-    if (!levels[depth]) levels[depth] = [];
-    levels[depth].push({ ...node, parentName });
-    (node.children || []).forEach(c =>
-      queue.push({ node: c, depth: depth + 1, parentName: node.employee_name })
-    );
-  }
-  return levels;
+  // Return sorted by level number
+  const maxLevel = Math.max(...Object.keys(grouped).map(Number));
+  return Array.from({ length: maxLevel + 1 }, (_, i) => grouped[i] || []);
 }
 
 function AdminCard({ node, cfg, onEdit, onDelete, onImageUpload }) {
@@ -154,8 +143,10 @@ export function OrgTreeNode({ nodes, levelLabels, isAdmin, onEdit, onDelete, onI
   return (
     <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
       {levels.map((levelNodes, depth) => (
-        <SwimlaneRow key={depth} depth={depth} levelNodes={levelNodes} levelLabels={levelLabels}
-          isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} onImageUpload={onImageUpload} />
+        levelNodes.length > 0 && (
+          <SwimlaneRow key={depth} depth={depth} levelNodes={levelNodes} levelLabels={levelLabels}
+            isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} onImageUpload={onImageUpload} />
+        )
       ))}
     </div>
   );
@@ -168,8 +159,10 @@ export function OrgTreeView({ nodes, levelLabels }) {
   return (
     <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
       {levels.map((levelNodes, depth) => (
-        <SwimlaneRow key={depth} depth={depth} levelNodes={levelNodes} levelLabels={levelLabels}
-          isAdmin={false} />
+        levelNodes.length > 0 && (
+          <SwimlaneRow key={depth} depth={depth} levelNodes={levelNodes} levelLabels={levelLabels}
+            isAdmin={false} />
+        )
       ))}
     </div>
   );

@@ -59,7 +59,8 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - `change_requests`: {id, requester_id, title, description, cr_type, status, manager_approval, admin_approval, metadata, applied_changes}
 - `payslips`: {id, user_id, month, year, basic_salary, total_deductions, net_pay}
 - `office_settings`: {id, latitude, longitude, radius_km, name}
-- `org_chart`: {id, parent_id, employee_name, job_title, image_url, description, sort_order}
+- `org_chart`: {id, parent_id, employee_name, job_title, image_url, description, sort_order, **level_num**}
+- `org_levels`: {id, level_num, label} — maps numeric levels to custom admin-defined names (L1=CEO, L2=Director, etc.)
 - `role_permissions`: {id, role, feature_key, enabled}
 
 ## What's Been Implemented
@@ -87,6 +88,7 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ **Worker Org Tree** (Feb 2026): Visual hierarchy with images via Object Storage
 - ✅ **Role-Based Tab Access** (Feb 2026): Admin toggles which tabs Manager/Employee can see; employee sidebar filters live
 - ✅ **CR Auto-Apply** (Feb 2026): On admin approval, Salary Revision / Leave Adjustment / Shift Change auto-apply to DB; admin enters apply value in review dialog; employees can specify requested value when creating such CRs
+- ✅ **Swimlane Org Tree + Explicit Level Assignment** (Aug 2026): Admin assigns L1/L2/L3 levels explicitly to each org node (no parent-depth inference); `org_levels` table stores custom label names; `OrgTreeNode.jsx` groups by `level_num`; Admin form has Level dropdown; empty swimlane rows are skipped
 
 ## Pending Items (Prioritized)
 
@@ -103,7 +105,7 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - Leave Balance: `GET/PUT /api/admin/employees/{id}/leave-balance`
 - Payroll: `GET /api/admin/payroll/summary`, `POST /api/admin/payroll/generate`
 - Change Requests: `GET/POST /api/change-requests`, `PUT /api/admin/change-requests/{id}/manager-action`, `PUT /api/admin/change-requests/{id}/admin-action`
-- Org Chart: `GET/POST/PUT/DELETE /api/admin/org-chart`, `POST /api/admin/org-chart/{id}/image`
+- Org Chart: `GET/POST/PUT/DELETE /api/admin/org-chart`, `POST /api/admin/org-chart/{id}/image`, `GET /api/org-levels`, `PUT /api/admin/org-levels`
 - Role Perms: `GET/PUT /api/admin/role-permissions`, `GET /api/my-permissions`
 - Office: `GET/PUT /api/admin/office-settings`
 - Notifications: `GET /api/admin/notifications`
