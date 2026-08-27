@@ -356,9 +356,7 @@ export default function AdminDashboard() {
     
     setLoading(true);
     try {
-      await api.post(`/admin/employees/${uploadingAvatarFor}/avatar`, formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      await api.post(`/admin/employees/${uploadingAvatarFor}/avatar`, formData);
       toast.success("Photo uploaded successfully");
       fetchData();
     } catch (error) {
@@ -808,9 +806,7 @@ export default function AdminDashboard() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await api.post(`/admin/org-chart/${nodeId}/image`, formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      const res = await api.post(`/admin/org-chart/${nodeId}/image`, formData);
       toast.success("Image uploaded");
       api.get("/admin/org-chart").then(r => setOrgNodes(r.data));
     } catch (e) {
