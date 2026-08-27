@@ -210,9 +210,19 @@ export default function EmployeeDashboard() {
   const handleClockIn = async () => {
     setLoading(true);
     try {
-      const location = await getLocation();
-      await api.post("/attendance/clock-in", location);
-      toast.success("Clocked in successfully!");
+      let location = null;
+      try {
+        location = await getLocation();
+      } catch (gpsErr) {
+        // GPS failed — if user has WFH today, allow clock-in without location
+        if (attendanceStatus.has_wfh_today) {
+          location = null; // backend will handle WFH without GPS
+        } else {
+          throw gpsErr;
+        }
+      }
+      await api.post("/attendance/clock-in", location || {});
+      toast.success(attendanceStatus.has_wfh_today ? "Clocked in (WFH)" : "Clocked in successfully!");
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Failed to clock in");
@@ -224,8 +234,17 @@ export default function EmployeeDashboard() {
   const handleClockOut = async () => {
     setLoading(true);
     try {
-      const location = await getLocation();
-      const response = await api.post("/attendance/clock-out", location);
+      let location = null;
+      try {
+        location = await getLocation();
+      } catch (gpsErr) {
+        if (attendanceStatus.has_wfh_today) {
+          location = null;
+        } else {
+          throw gpsErr;
+        }
+      }
+      const response = await api.post("/attendance/clock-out", location || {});
       const workingHours = response.data?.working_hours || 0;
       if (workingHours < 8) {
         toast.warning(`Clocked out with ${formatHours(workingHours)} (less than 8h required)`);
@@ -736,15 +755,23 @@ export default function EmployeeDashboard() {
                 {/* Action Buttons */}
                 <div className="space-y-3">
                   {!attendanceStatus.clocked_in ? (
-                    <button
-                      data-testid="clock-in-btn"
-                      onClick={handleClockIn}
-                      disabled={loading}
-                      className="btn-clock-in"
-                    >
-                      <Clock className="inline h-5 w-5 mr-2" weight="bold" />
-                      Clock In
-                    </button>
+                    <div className="space-y-2">
+                      {attendanceStatus.has_wfh_today && (
+                        <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">
+                          <Laptop className="h-3.5 w-3.5" weight="bold" />
+                          WFH Approved — GPS not required
+                        </div>
+                      )}
+                      <button
+                        data-testid="clock-in-btn"
+                        onClick={handleClockIn}
+                        disabled={loading}
+                        className="btn-clock-in"
+                      >
+                        <Clock className="inline h-5 w-5 mr-2" weight="bold" />
+                        {attendanceStatus.has_wfh_today ? "Clock In (WFH)" : "Clock In"}
+                      </button>
+                    </div>
                   ) : (
                     <>
                       {!attendanceStatus.on_break ? (

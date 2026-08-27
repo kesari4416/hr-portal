@@ -503,10 +503,21 @@ async def clock_in(request: Request):
         lat = None
         lng = None
 
-    if lat is None or lng is None:
-        raise HTTPException(status_code=400, detail="Location is required. Please enable GPS/location services.")
+    # Check if user has approved WFH today — GPS becomes optional
+    wfh_today = await execute_query(
+        "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status = 'approved'",
+        (user["id"], today), fetch_one=True
+    )
+    is_wfh = bool(wfh_today)
 
-    # Geofence check
+    if lat is None or lng is None:
+        if not is_wfh:
+            raise HTTPException(status_code=400, detail="Location is required. Please enable GPS/location services.")
+        # WFH employee — clock in without GPS
+        lat = 0.0
+        lng = 0.0
+
+    # Geofence check (will auto-pass for WFH employees)
     allowed, location_type = await check_geofence(lat, lng, user["id"])
     if not allowed:
         raise HTTPException(status_code=400, detail=f"Cannot clock in: {location_type}. You must be at the office or have approved WFH.")
@@ -517,8 +528,8 @@ async def clock_in(request: Request):
     if existing:
         raise HTTPException(status_code=400, detail="Already clocked in")
 
-    # Reverse geocode
-    address = await reverse_geocode(lat, lng)
+    # Reverse geocode (skip for WFH with no location)
+    address = await reverse_geocode(lat, lng) if (lat != 0.0 or lng != 0.0) else "Work From Home"
 
     att_id = await execute_query(
         "INSERT INTO attendance (user_id, user_name, date, clock_in, total_break_minutes, clock_in_lat, clock_in_lng, clock_in_address, location_type) VALUES (%s, %s, %s, %s, 0, %s, %s, %s, %s)",
@@ -541,8 +552,18 @@ async def clock_out(request: Request):
         lat = None
         lng = None
 
+    # Allow clock-out without GPS if user has approved WFH today
+    wfh_today = await execute_query(
+        "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status = 'approved'",
+        (user["id"], today), fetch_one=True
+    )
+    is_wfh = bool(wfh_today)
+
     if lat is None or lng is None:
-        raise HTTPException(status_code=400, detail="Location is required for clock out.")
+        if not is_wfh:
+            raise HTTPException(status_code=400, detail="Location is required for clock out.")
+        lat = 0.0
+        lng = 0.0
 
     attendance = await execute_query(
         "SELECT * FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True
@@ -552,8 +573,8 @@ async def clock_out(request: Request):
 
     clock_out_time = datetime.now(timezone.utc)
 
-    # Reverse geocode
-    address = await reverse_geocode(lat, lng)
+    # Reverse geocode (skip for WFH with no location)
+    address = await reverse_geocode(lat, lng) if (lat != 0.0 or lng != 0.0) else "Work From Home"
 
     # End any active break
     active_break = await execute_query(
@@ -707,8 +728,15 @@ async def get_attendance_status(request: Request):
         (user["id"], today), fetch_one=True
     )
 
+    # Check if user has approved WFH today
+    wfh_today = await execute_query(
+        "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status = 'approved'",
+        (user["id"], today), fetch_one=True
+    )
+    has_wfh_today = bool(wfh_today)
+
     if not attendance:
-        return {"clocked_in": False, "on_break": False, "attendance": None, "max_break_minutes": MAX_BREAK_MINUTES, "remaining_break_minutes": MAX_BREAK_MINUTES}
+        return {"clocked_in": False, "on_break": False, "attendance": None, "max_break_minutes": MAX_BREAK_MINUTES, "remaining_break_minutes": MAX_BREAK_MINUTES, "has_wfh_today": has_wfh_today}
 
     breaks_list = await execute_query("SELECT break_start, break_end FROM breaks WHERE attendance_id = %s", (attendance["id"],), fetch_all=True)
     breaks_formatted = [{"start": b["break_start"], "end": b["break_end"]} for b in (breaks_list or [])]
@@ -729,7 +757,7 @@ async def get_attendance_status(request: Request):
         "is_short_day": bool(attendance.get("is_short_day"))
     }
 
-    return {"clocked_in": attendance.get("clock_out") is None, "on_break": on_break, "attendance": att_data, "max_break_minutes": MAX_BREAK_MINUTES, "remaining_break_minutes": remaining_break}
+    return {"clocked_in": attendance.get("clock_out") is None, "on_break": on_break, "attendance": att_data, "max_break_minutes": MAX_BREAK_MINUTES, "remaining_break_minutes": remaining_break, "has_wfh_today": has_wfh_today}
 
 @attendance_router.get("/history")
 async def get_attendance_history(request: Request, limit: int = 30):
