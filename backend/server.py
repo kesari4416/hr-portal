@@ -2730,6 +2730,32 @@ async def get_attendance_locations(request: Request, date: str = None):
         result.append(d)
     return result
 
+# ── Superadmin Reset ──────────────────────────────────────────────────────────
+@admin_router.post("/reset-portal")
+async def reset_portal(request: Request):
+    """Deletes ALL data except the superadmin user and Worker Tree (org_chart, org_levels)."""
+    user = await require_admin(request)
+    admin_id = user.get("id")
+
+    tables_to_clear = [
+        "attendance", "breaks", "leave_requests", "wfh_requests",
+        "permissions", "payslips", "leave_deductions", "custom_deductions",
+        "payroll_runs", "change_requests", "media",
+    ]
+    for table in tables_to_clear:
+        try:
+            await execute_query(f"DELETE FROM `{table}`", ())
+        except Exception as e:
+            logging.warning(f"Reset: could not clear {table}: {e}")
+
+    try:
+        await execute_query("DELETE FROM users WHERE id != %s", (int(admin_id),))
+    except Exception as e:
+        logging.warning(f"Reset: could not clear users: {e}")
+
+    logging.info(f"Portal reset by admin id={admin_id}")
+    return {"message": "Portal reset complete. All employee data cleared. Worker Tree and your account are preserved."}
+
 # ============== INCLUDE ROUTERS ==============
 
 api_router.include_router(auth_router)

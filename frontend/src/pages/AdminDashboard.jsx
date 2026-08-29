@@ -17,6 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { CRApproveDialog } from "../components/CRApproveDialog";
 import { OrgTreeNode, OrgTreeView } from "../components/OrgTreeNode";
+import { ResetPortalButton } from "../components/ResetPortalButton";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -998,6 +999,7 @@ export default function AdminDashboard() {
             <SignOut className="h-4 w-4" />
             Sign Out
           </Button>
+          <ResetPortalButton api={api} onDone={() => { fetchData(); }} />
         </div>
       </aside>
 
