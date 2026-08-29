@@ -2731,11 +2731,19 @@ async def get_attendance_locations(request: Request, date: str = None):
     return result
 
 # ── Superadmin Reset ──────────────────────────────────────────────────────────
+class ResetPortalRequest(BaseModel):
+    password: str
+
 @admin_router.post("/reset-portal")
-async def reset_portal(request: Request):
-    """Deletes ALL data except the superadmin user and Worker Tree (org_chart, org_levels)."""
+async def reset_portal(body: ResetPortalRequest, request: Request):
+    """Deletes ALL data except the superadmin user and Worker Tree. Requires admin password."""
     user = await require_admin(request)
     admin_id = user.get("id")
+
+    # Verify password before proceeding
+    db_user = await execute_query("SELECT password_hash FROM users WHERE id = %s", (int(admin_id),), fetch_one=True)
+    if not db_user or not verify_password(body.password, db_user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect password. Reset cancelled.")
 
     tables_to_clear = [
         "attendance", "breaks", "leave_requests", "wfh_requests",
