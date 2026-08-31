@@ -236,8 +236,8 @@ def parse_shift(shift_str: str) -> dict:
     return {"start": DEFAULT_SHIFT_START, "end": DEFAULT_SHIFT_END}
 
 # Geofencing defaults (can be overridden in DB settings table)
-DEFAULT_OFFICE_LAT = 10.0159  # Kochi, Kerala
-DEFAULT_OFFICE_LNG = 76.3419
+DEFAULT_OFFICE_LAT = 8.1815   # Sparkcurv HQ, Nagercoil, Tamil Nadu
+DEFAULT_OFFICE_LNG = 77.4294
 DEFAULT_OFFICE_RADIUS_KM = 0.5  # 500 meters
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -271,9 +271,15 @@ async def get_office_settings():
             "latitude": float(settings["latitude"]),
             "longitude": float(settings["longitude"]),
             "radius_km": float(settings["radius_km"]),
-            "name": settings.get("office_name", "Office")
+            "name": settings.get("office_name", "Main Headquarters (Nagercoil)"),
+            "address": settings.get("address", "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001")
         }
-    return {"latitude": DEFAULT_OFFICE_LAT, "longitude": DEFAULT_OFFICE_LNG, "radius_km": DEFAULT_OFFICE_RADIUS_KM, "name": "Office"}
+    return {
+        "latitude": DEFAULT_OFFICE_LAT, "longitude": DEFAULT_OFFICE_LNG,
+        "radius_km": DEFAULT_OFFICE_RADIUS_KM,
+        "name": "Main Headquarters (Nagercoil)",
+        "address": "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001"
+    }
 
 async def check_geofence(lat, lng, user_id):
     """Check if location is within office geofence or user has approved WFH."""
@@ -338,7 +344,8 @@ class OfficeSettingsUpdate(BaseModel):
     latitude: float
     longitude: float
     radius_km: float = 0.5
-    office_name: str = "Office"
+    office_name: str = "Main Headquarters (Nagercoil)"
+    address: str = "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001"
 
 class SalaryUpdate(BaseModel):
     basic_salary: float
@@ -2699,13 +2706,13 @@ async def update_office_settings_api(data: OfficeSettingsUpdate, request: Reques
     existing = await execute_query("SELECT id FROM office_settings WHERE id = 1", fetch_one=True)
     if existing:
         await execute_query(
-            "UPDATE office_settings SET latitude = %s, longitude = %s, radius_km = %s, office_name = %s, updated_at = %s WHERE id = 1",
-            (data.latitude, data.longitude, data.radius_km, data.office_name, now)
+            "UPDATE office_settings SET latitude=%s, longitude=%s, radius_km=%s, office_name=%s, address=%s, updated_at=%s WHERE id=1",
+            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, now)
         )
     else:
         await execute_query(
-            "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, updated_at) VALUES (1, %s, %s, %s, %s, %s)",
-            (data.latitude, data.longitude, data.radius_km, data.office_name, now)
+            "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, address, updated_at) VALUES (1,%s,%s,%s,%s,%s,%s)",
+            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, now)
         )
     return {"message": "Office settings updated", "latitude": data.latitude, "longitude": data.longitude, "radius_km": data.radius_km}
 
@@ -3037,6 +3044,7 @@ async def init_database():
                     longitude DOUBLE NOT NULL,
                     radius_km FLOAT DEFAULT 0.5,
                     office_name VARCHAR(255) DEFAULT 'Office',
+                    address VARCHAR(512) DEFAULT '',
                     updated_at VARCHAR(64)
                 )
             """)
