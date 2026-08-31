@@ -1418,16 +1418,17 @@ export default function AdminDashboard() {
                               >
                                 <Key className="h-4 w-4" />
                               </Button>
-                              <Button
+                              <button
                                 data-testid={`gps-toggle-${emp.id}`}
-                                variant="ghost"
-                                size="sm"
                                 onClick={() => handleToggleGps(emp)}
-                                className={`h-8 w-8 p-0 transition-colors ${emp.gps_tracking_enabled !== false ? 'text-emerald-500 hover:text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
                                 title={emp.gps_tracking_enabled !== false ? "GPS Tracking ON — click to disable" : "GPS Tracking OFF — click to enable"}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border transition-all cursor-pointer select-none ${emp.gps_tracking_enabled !== false ? 'bg-emerald-50 text-emerald-600 border-emerald-300 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                               >
-                                {emp.gps_tracking_enabled !== false ? <WifiHigh className="h-4 w-4" weight="bold" /> : <WifiNone className="h-4 w-4" weight="bold" />}
-                              </Button>
+                                {emp.gps_tracking_enabled !== false
+                                  ? <><WifiHigh className="h-3 w-3" weight="bold" /> GPS</>
+                                  : <><WifiNone className="h-3 w-3" weight="bold" /> GPS</>
+                                }
+                              </button>
                             </>
                           )}
                           <Button
