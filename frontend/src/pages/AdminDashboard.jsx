@@ -13,7 +13,7 @@ import {
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
   GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning, Sun, Moon,
-  TreeStructure, ShieldCheck
+  TreeStructure, ShieldCheck, WifiNone, WifiHigh
 } from "@phosphor-icons/react";
 import { CRApproveDialog } from "../components/CRApproveDialog";
 import { OrgTreeNode, OrgTreeView } from "../components/OrgTreeNode";
@@ -323,6 +323,18 @@ export default function AdminDashboard() {
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete employee");
+    }
+  };
+
+  const handleToggleGps = async (emp) => {
+    const newVal = !emp.gps_tracking_enabled;
+    try {
+      await api.put(`/admin/employees/${emp.id}/gps-tracking`, { gps_tracking_enabled: newVal });
+      toast.success(`GPS tracking ${newVal ? "enabled" : "disabled"} for ${emp.name}`);
+      // Optimistically update local state without full refetch
+      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, gps_tracking_enabled: newVal } : e));
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update GPS tracking");
     }
   };
 
@@ -1405,6 +1417,16 @@ export default function AdminDashboard() {
                                 title="Reset Password"
                               >
                                 <Key className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                data-testid={`gps-toggle-${emp.id}`}
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleGps(emp)}
+                                className={`h-8 w-8 p-0 transition-colors ${emp.gps_tracking_enabled !== false ? 'text-emerald-500 hover:text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
+                                title={emp.gps_tracking_enabled !== false ? "GPS Tracking ON — click to disable" : "GPS Tracking OFF — click to enable"}
+                              >
+                                {emp.gps_tracking_enabled !== false ? <WifiHigh className="h-4 w-4" weight="bold" /> : <WifiNone className="h-4 w-4" weight="bold" />}
                               </Button>
                             </>
                           )}

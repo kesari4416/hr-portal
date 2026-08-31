@@ -142,7 +142,7 @@ async def get_current_user(request: Request) -> dict:
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
         user = await execute_query(
-            "SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary FROM users WHERE id = %s",
+            "SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, gps_tracking_enabled FROM users WHERE id = %s",
             (int(payload["sub"]),), fetch_one=True
         )
         if not user:
@@ -286,6 +286,10 @@ async def get_office_settings():
 async def check_geofence(lat, lng, user_id):
     """Check if location is within office geofence or user has approved WFH."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Check if GPS tracking is disabled for this employee (admin override)
+    user_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user_id,), fetch_one=True)
+    if user_row and int(user_row.get("gps_tracking_enabled", 1) or 1) == 0:
+        return True, "Office"
     # Check if user has approved WFH for today
     wfh = await execute_query(
         "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status = 'approved'",
@@ -497,8 +501,12 @@ async def clock_in(request: Request):
 
     if lat is None or lng is None:
         if not is_wfh:
-            raise HTTPException(status_code=400, detail="Location is required. Please enable GPS/location services.")
-        # WFH employee — clock in without GPS
+            # Check if GPS tracking is disabled for this employee
+            user_gps_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user["id"],), fetch_one=True)
+            gps_enabled = int(user_gps_row.get("gps_tracking_enabled", 1) or 1) if user_gps_row else 1
+            if gps_enabled:
+                raise HTTPException(status_code=400, detail="Location is required. Please enable GPS/location services.")
+        # WFH or GPS-disabled employee — clock in without GPS
         lat = 0.0
         lng = 0.0
 
@@ -964,11 +972,12 @@ async def cancel_leave_request(leave_id: str, request: Request):
 @admin_router.get("/employees")
 async def get_all_employees(request: Request):
     await require_admin_or_manager(request)
-    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit FROM users ORDER BY created_at DESC", fetch_all=True)
+    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled FROM users ORDER BY created_at DESC", fetch_all=True)
     result = []
     for emp in (rows or []):
         e = dict(emp)
         e["id"] = str(e.pop("id"))
+        e["gps_tracking_enabled"] = bool(e.get("gps_tracking_enabled", 1))
         result.append(e)
     return result
 
@@ -1058,6 +1067,20 @@ async def delete_employee(employee_id: str, request: Request):
     if result == 0:
         raise HTTPException(status_code=404, detail="Employee not found")
     return {"message": "Employee deleted"}
+
+@admin_router.put("/employees/{employee_id}/gps-tracking")
+async def toggle_gps_tracking(employee_id: str, request: Request):
+    """Admin can enable or disable GPS tracking for an employee."""
+    await require_admin(request)
+    body = await request.json()
+    enabled = bool(body.get("gps_tracking_enabled", True))
+    result = await execute_query(
+        "UPDATE users SET gps_tracking_enabled = %s WHERE id = %s AND role != 'admin'",
+        (int(enabled), int(employee_id))
+    )
+    if result == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return {"message": f"GPS tracking {'enabled' if enabled else 'disabled'}", "gps_tracking_enabled": enabled}
 
 @admin_router.post("/employees/{employee_id}/reset-password")
 async def reset_employee_password(employee_id: str, data: PasswordReset, request: Request):
@@ -3190,6 +3213,16 @@ async def startup():
                 logger.info("Added geofence_bypass column to office_settings")
             except Exception as e:
                 logger.warning(f"Could not add geofence_bypass column: {e}")
+
+        # Migration: Add gps_tracking_enabled to users
+        try:
+            await execute_query("SELECT gps_tracking_enabled FROM users LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE users ADD COLUMN gps_tracking_enabled TINYINT(1) DEFAULT 1")
+                logger.info("Added gps_tracking_enabled column to users")
+            except Exception as e:
+                logger.warning(f"Could not add gps_tracking_enabled column: {e}")
 
         # Migration: Add location columns to attendance
         for col in ["clock_in_lat DOUBLE", "clock_in_lng DOUBLE", "clock_in_address TEXT", "clock_out_lat DOUBLE", "clock_out_lng DOUBLE", "clock_out_address TEXT", "location_type VARCHAR(20)"]:

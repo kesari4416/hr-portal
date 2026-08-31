@@ -16,7 +16,7 @@ import {
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
   CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
-  GitPullRequest, Plus, Sun, Moon, TreeStructure, MapPin
+  GitPullRequest, Plus, Sun, Moon, TreeStructure, MapPin, WifiNone
 } from "@phosphor-icons/react";
 import { OrgTreeView } from "../components/OrgTreeNode";
 
@@ -229,18 +229,19 @@ export default function EmployeeDashboard() {
     setLoading(true);
     try {
       let location = null;
+      const gpsDisabled = user?.gps_tracking_enabled === false || user?.gps_tracking_enabled === 0;
       try {
-        location = await getLocation();
+        if (!gpsDisabled) {
+          location = await getLocation();
+        }
       } catch (gpsErr) {
-        // GPS failed — if user has WFH today, allow clock-in without location
-        if (attendanceStatus.has_wfh_today) {
-          location = null; // backend will handle WFH without GPS
-        } else {
+        // GPS failed — allow if WFH or GPS tracking disabled by admin
+        if (!attendanceStatus.has_wfh_today && !gpsDisabled) {
           throw gpsErr;
         }
       }
       await api.post("/attendance/clock-in", location || {});
-      toast.success(attendanceStatus.has_wfh_today ? "Clocked in (WFH)" : "Clocked in successfully!");
+      toast.success(gpsDisabled ? "Clocked in (GPS tracking off)" : attendanceStatus.has_wfh_today ? "Clocked in (WFH)" : "Clocked in successfully!");
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Failed to clock in");
@@ -253,12 +254,13 @@ export default function EmployeeDashboard() {
     setLoading(true);
     try {
       let location = null;
+      const gpsDisabled = user?.gps_tracking_enabled === false || user?.gps_tracking_enabled === 0;
       try {
-        location = await getLocation();
+        if (!gpsDisabled) {
+          location = await getLocation();
+        }
       } catch (gpsErr) {
-        if (attendanceStatus.has_wfh_today) {
-          location = null;
-        } else {
+        if (!attendanceStatus.has_wfh_today && !gpsDisabled) {
           throw gpsErr;
         }
       }
@@ -724,7 +726,7 @@ export default function EmployeeDashboard() {
                   {!attendanceStatus.clocked_in ? (
                     <div className="space-y-2">
                       {/* GPS Status Panel */}
-                      {gpsStatus && !gpsStatus.has_wfh_today && !gpsStatus.geofence_bypass && (
+                      {gpsStatus && !gpsStatus.has_wfh_today && !gpsStatus.geofence_bypass && user?.gps_tracking_enabled !== false && user?.gps_tracking_enabled !== 0 && (
                         <div data-testid="gps-status-panel" className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs border ${gpsStatus.within ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
                           <MapPin className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" weight="bold" />
                           <div>
@@ -735,7 +737,13 @@ export default function EmployeeDashboard() {
                           </div>
                         </div>
                       )}
-                      {gpsStatus?.geofence_bypass && (
+                      {(user?.gps_tracking_enabled === false || user?.gps_tracking_enabled === 0) && (
+                        <div data-testid="gps-disabled-badge" className="flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5">
+                          <WifiNone className="h-3.5 w-3.5" weight="bold" />
+                          GPS tracking disabled by admin — Clock-in allowed from anywhere
+                        </div>
+                      )}
+                      {gpsStatus?.geofence_bypass && user?.gps_tracking_enabled !== false && (
                         <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
                           <Warning className="h-3.5 w-3.5" weight="bold" />
                           Geofence bypass enabled — Clock-in allowed from any location

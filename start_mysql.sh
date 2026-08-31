@@ -4,9 +4,12 @@
 
 DATADIR=/app/mysql-data
 SOCKET=/run/mysqld/mysqld.sock
+# Locate the correct mariadb binary
+MYSQLD=$(which mariadbd 2>/dev/null || which mysqld 2>/dev/null || echo "/usr/sbin/mariadbd")
 
 mkdir -p /run/mysqld
 chown -R root:root "$DATADIR" 2>/dev/null
+chmod 755 /run/mysqld
 
 # Initialize data dir if missing
 if [ ! -d "$DATADIR/mysql" ]; then
@@ -17,7 +20,6 @@ fi
 # If MySQL is already running (socket exists and responds), monitor it instead of starting a new instance
 if mysqladmin --socket="$SOCKET" ping --connect-timeout=3 2>/dev/null; then
   echo "MariaDB already running. Monitoring existing process..."
-  # Read the PID from the pidfile
   PIDFILE=/run/mysqld/mysqld.pid
   MYSQLD_PID=""
   if [ -f "$PIDFILE" ]; then
@@ -34,15 +36,15 @@ if mysqladmin --socket="$SOCKET" ping --connect-timeout=3 2>/dev/null; then
     echo "MariaDB PID $MYSQLD_PID exited. Supervisor will restart."
     exit 1
   fi
-  # Fallback: just sleep and let the existing instance keep running
+  # Fallback: sleep while instance is alive
   while mysqladmin --socket="$SOCKET" ping --connect-timeout=3 2>/dev/null; do
     sleep 10
   done
   exit 1
 fi
 
-# No running instance — start fresh
-exec mysqld --user=root \
+echo "Starting MariaDB using $MYSQLD ..."
+exec "$MYSQLD" --user=root \
      --datadir="$DATADIR" \
      --socket="$SOCKET" \
      --bind-address=127.0.0.1 \

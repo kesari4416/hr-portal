@@ -92,7 +92,7 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ **Geofence Bypass Mode** (Aug 2026): Admin toggle to allow clock-in from any location; `geofence_bypass` column in `office_settings`
 - ✅ **Auto Detect Location** (Aug 2026): Admin opens Office Settings → clicks "Auto Detect My Current Location" → browser GPS fills lat/lng + reverse geocoded address
 - ✅ **GPS Status Panel** (Aug 2026): Employee dashboard shows live distance from office + within/outside geofence indicator before clicking Clock In
-- ✅ **Check-Location Endpoint** (Aug 2026): `POST /api/attendance/check-location` returns distance/within_geofence/bypass status
+- ✅ **GPS Tracking Per-Employee Toggle** (Aug 2026): Admin can enable/disable GPS tracking per employee from the Employees table. Green WiFi icon = ON, gray = OFF. When disabled: employee can clock in from anywhere without GPS check. Employee dashboard shows "GPS tracking disabled by admin" badge. New column: `users.gps_tracking_enabled` (TINYINT 1, default 1)
 
 ## Pending Items (Prioritized)
 
