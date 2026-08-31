@@ -1433,22 +1433,22 @@ export default function AdminDashboard() {
                                 data-testid={`gps-toggle-${emp.id}`}
                                 onClick={() => handleToggleGps(emp)}
                                 title={emp.gps_tracking_enabled !== false ? "GPS Tracking ON — click to disable" : "GPS Tracking OFF — click to enable"}
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border transition-all cursor-pointer select-none ${emp.gps_tracking_enabled !== false ? 'bg-emerald-50 text-emerald-600 border-emerald-300 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${emp.gps_tracking_enabled !== false ? 'bg-emerald-50 text-emerald-600 border-emerald-300 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                               >
                                 {emp.gps_tracking_enabled !== false
-                                  ? <><WifiHigh className="h-3 w-3" weight="bold" /> GPS</>
-                                  : <><WifiNone className="h-3 w-3" weight="bold" /> GPS</>
+                                  ? <WifiHigh className="h-4 w-4" weight="bold" />
+                                  : <WifiNone className="h-4 w-4" weight="bold" />
                                 }
                               </button>
                               <button
                                 data-testid={`timer-toggle-${emp.id}`}
                                 onClick={() => handleToggleTimerAccess(emp)}
                                 title={emp.timer_access_enabled ? "Flexible Timer ON — click to disable" : "Flexible Timer OFF — click to enable"}
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border transition-all cursor-pointer select-none ${emp.timer_access_enabled ? 'bg-violet-50 text-violet-600 border-violet-300 hover:bg-violet-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${emp.timer_access_enabled ? 'bg-violet-50 text-violet-600 border-violet-300 hover:bg-violet-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                               >
                                 {emp.timer_access_enabled
-                                  ? <><PlayCircle className="h-3 w-3" weight="bold" /> Timer</>
-                                  : <><StopCircle className="h-3 w-3" weight="bold" /> Timer</>
+                                  ? <Timer className="h-4 w-4" weight="bold" />
+                                  : <Timer className="h-4 w-4" weight="regular" />
                                 }
                               </button>
                             </>
