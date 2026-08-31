@@ -16,7 +16,7 @@ import {
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
   CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
-  GitPullRequest, Plus, Sun, Moon, TreeStructure
+  GitPullRequest, Plus, Sun, Moon, TreeStructure, MapPin
 } from "@phosphor-icons/react";
 import { OrgTreeView } from "../components/OrgTreeNode";
 
@@ -85,6 +85,7 @@ export default function EmployeeDashboard() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [breakElapsedTime, setBreakElapsedTime] = useState(0);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [gpsStatus, setGpsStatus] = useState(null); // null | { within: bool, distance_km, office_name, your_lat, your_lng, geofence_bypass, has_wfh_today }
 
   const [leaveForm, setLeaveForm] = useState({
     leave_type: "casual",
@@ -150,6 +151,11 @@ export default function EmployeeDashboard() {
 
   useEffect(() => {
     fetchData();
+    // Auto check GPS status when dashboard loads
+    if (!attendanceStatus.clocked_in) {
+      checkGPSStatus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
   // Timer for work duration
@@ -207,6 +213,16 @@ export default function EmployeeDashboard() {
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
+  };
+
+  const checkGPSStatus = async () => {
+    try {
+      const loc = await getLocation();
+      const res = await api.post("/attendance/check-location", loc);
+      setGpsStatus({ within: res.data.within_geofence, distance_km: res.data.distance_km, office_name: res.data.office_name, your_lat: res.data.your_lat, your_lng: res.data.your_lng, geofence_bypass: res.data.geofence_bypass, has_wfh_today: res.data.has_wfh_today, radius_km: res.data.radius_km });
+    } catch {
+      setGpsStatus(null);
+    }
   };
 
   const handleClockIn = async () => {
@@ -707,6 +723,24 @@ export default function EmployeeDashboard() {
                 <div className="space-y-3">
                   {!attendanceStatus.clocked_in ? (
                     <div className="space-y-2">
+                      {/* GPS Status Panel */}
+                      {gpsStatus && !gpsStatus.has_wfh_today && !gpsStatus.geofence_bypass && (
+                        <div data-testid="gps-status-panel" className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs border ${gpsStatus.within ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                          <MapPin className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" weight="bold" />
+                          <div>
+                            {gpsStatus.within
+                              ? <span className="font-semibold">Within office range ({gpsStatus.distance_km} km from {gpsStatus.office_name})</span>
+                              : <><span className="font-semibold">{gpsStatus.distance_km} km from {gpsStatus.office_name}</span><br /><span className="opacity-80">Max allowed: {gpsStatus.radius_km} km. Ask admin to approve WFH or adjust geofence.</span></>
+                            }
+                          </div>
+                        </div>
+                      )}
+                      {gpsStatus?.geofence_bypass && (
+                        <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                          <Warning className="h-3.5 w-3.5" weight="bold" />
+                          Geofence bypass enabled — Clock-in allowed from any location
+                        </div>
+                      )}
                       {attendanceStatus.has_wfh_today && (
                         <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">
                           <Laptop className="h-3.5 w-3.5" weight="bold" />

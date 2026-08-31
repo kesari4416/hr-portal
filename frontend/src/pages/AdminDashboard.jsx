@@ -138,9 +138,10 @@ export default function AdminDashboard() {
   const [crActionNotes, setCrActionNotes] = useState("");
   const [attendanceView, setAttendanceView] = useState("table");
   const [locationData, setLocationData] = useState([]);
-  const [officeSettings, setOfficeSettings] = useState({ latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, office_name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001" });
+  const [officeSettings, setOfficeSettings] = useState({ latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, office_name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001", geofence_bypass: false });
   const [officeDialogOpen, setOfficeDialogOpen] = useState(false);
-  const [officeForm, setOfficeForm] = useState({ latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, office_name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001" });
+  const [detectingLocation, setDetectingLocation] = useState(false);
+  const [officeForm, setOfficeForm] = useState({ latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, office_name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001", geofence_bypass: false });
   const [locationDate, setLocationDate] = useState(new Date().toISOString().split("T")[0]);
   const [notifications, setNotifications] = useState({ total: 0, items: [] });
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
@@ -203,7 +204,7 @@ export default function AdminDashboard() {
       setChangeRequests(results[9].data);
       const oSettings = results[10].data;
       setOfficeSettings(oSettings);
-      setOfficeForm({ latitude: oSettings.latitude, longitude: oSettings.longitude, radius_km: oSettings.radius_km, office_name: oSettings.name || "Main Headquarters (Nagercoil)", address: oSettings.address || "" });
+      setOfficeForm({ latitude: oSettings.latitude, longitude: oSettings.longitude, radius_km: oSettings.radius_km, office_name: oSettings.name || "Main Headquarters (Nagercoil)", address: oSettings.address || "", geofence_bypass: oSettings.geofence_bypass || false });
       setLocationData(results[11].data);
       if (user?.role === "admin" && results[12]) {
         setPayslips(results[12].data);
@@ -531,6 +532,39 @@ export default function AdminDashboard() {
     } catch (error) {
       toast.error("Failed to save office settings");
     }
+  };
+
+  const handleAutoDetectLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser");
+      return;
+    }
+    setDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = parseFloat(pos.coords.latitude.toFixed(6));
+        const lng = parseFloat(pos.coords.longitude.toFixed(6));
+        setOfficeForm(prev => ({ ...prev, latitude: lat, longitude: lng }));
+        // Try reverse geocode for address
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+            headers: { "User-Agent": "SparkCurv-HR-Portal/1.0" }
+          });
+          const data = await res.json();
+          if (data.display_name) {
+            setOfficeForm(prev => ({ ...prev, latitude: lat, longitude: lng, address: data.display_name }));
+          }
+        } catch { /* ignore geocode errors */ }
+        toast.success(`Location detected: ${lat}, ${lng}`);
+        setDetectingLocation(false);
+      },
+      (err) => {
+        setDetectingLocation(false);
+        if (err.code === 1) toast.error("Location permission denied. Please allow access in your browser.");
+        else toast.error("Could not detect location. Please enter coordinates manually.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const fetchLocationData = async (date) => {
@@ -2465,6 +2499,16 @@ export default function AdminDashboard() {
                       </DialogHeader>
                       <p className="text-sm text-slate-500 -mt-2">Set office coordinates and allowed radius for clock-in.</p>
                       <div className="space-y-4 pt-4">
+                        {/* Auto Detect Location */}
+                        <button
+                          data-testid="auto-detect-location-btn"
+                          onClick={handleAutoDetectLocation}
+                          disabled={detectingLocation}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-dashed border-[#002FA7] text-[#002FA7] font-semibold text-sm hover:bg-blue-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <NavigationArrow className={`h-4 w-4 ${detectingLocation ? 'animate-spin' : ''}`} weight="fill" />
+                          {detectingLocation ? "Detecting your location…" : "Auto Detect My Current Location"}
+                        </button>
                         <div className="space-y-2">
                           <Label>Office Name</Label>
                           <Input data-testid="office-name-input" value={officeForm.office_name} onChange={(e) => setOfficeForm({ ...officeForm, office_name: e.target.value })} />
@@ -2487,6 +2531,19 @@ export default function AdminDashboard() {
                           <Label>Allowed Radius (km)</Label>
                           <Input data-testid="office-radius-input" type="number" step="0.1" value={officeForm.radius_km} onChange={(e) => setOfficeForm({ ...officeForm, radius_km: parseFloat(e.target.value) })} />
                           <p className="text-xs text-slate-400">{(officeForm.radius_km * 1000).toFixed(0)} meters — employees must be within this range to clock in</p>
+                        </div>
+                        <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800">Bypass Geofence</p>
+                            <p className="text-xs text-amber-600">Allow clock-in from any location (disables GPS check)</p>
+                          </div>
+                          <button
+                            data-testid="geofence-bypass-toggle"
+                            onClick={() => setOfficeForm({ ...officeForm, geofence_bypass: !officeForm.geofence_bypass })}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${officeForm.geofence_bypass ? 'bg-amber-500' : 'bg-slate-300'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${officeForm.geofence_bypass ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
                         </div>
                         <Button data-testid="save-office-btn" onClick={handleSaveOfficeSettings} className="w-full bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl">
                           Save Office Location

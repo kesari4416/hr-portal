@@ -83,12 +83,16 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ Admin: Employee management (add/edit/delete/assign shift/set salary/reset password/upload avatar)
 - ✅ **GUI Redesign** (Feb 2026): Rebranded Sparkcurve → Sparkcurv
 - ✅ **Dark Mode Toggle** (Feb 2026): Full dark/light mode toggle, persisted in localStorage
-- ✅ **Avatar Storage** (Feb 2026): Emergent Object Storage
 - ✅ **Leave Balance Editor** (Feb 2026): Admin can edit casual/sick/LOP/permission/WFH per employee
-- ✅ **Worker Org Tree** (Feb 2026): Visual hierarchy with images via Object Storage
-- ✅ **Role-Based Tab Access** (Feb 2026): Admin toggles which tabs Manager/Employee can see; employee sidebar filters live
-- ✅ **CR Auto-Apply** (Feb 2026): On admin approval, Salary Revision / Leave Adjustment / Shift Change auto-apply to DB; admin enters apply value in review dialog; employees can specify requested value when creating such CRs
-- ✅ **Employee ID (employee_code)** (Aug 2026): Visible in sidebar for employees; Admin Add form auto-fetches next available code (SC24001 series) with manual override; Edit form shows current code with inline "Auto" button; duplicate code rejection on both create and update
+- ✅ **Worker Org Tree** (Feb 2026): Visual hierarchy with images
+- ✅ **Role-Based Tab Access** (Feb 2026): Admin toggles which tabs Manager/Employee can see
+- ✅ **CR Auto-Apply** (Feb 2026): On admin approval, Salary/Leave/Shift changes auto-apply to DB
+- ✅ **Employee ID (employee_code)** (Aug 2026): SC24001 series, auto-gen with manual override
+- ✅ **HQ Location → Nagercoil** (Aug 2026): `office_settings` updated to 8.1815, 77.4294
+- ✅ **Geofence Bypass Mode** (Aug 2026): Admin toggle to allow clock-in from any location; `geofence_bypass` column in `office_settings`
+- ✅ **Auto Detect Location** (Aug 2026): Admin opens Office Settings → clicks "Auto Detect My Current Location" → browser GPS fills lat/lng + reverse geocoded address
+- ✅ **GPS Status Panel** (Aug 2026): Employee dashboard shows live distance from office + within/outside geofence indicator before clicking Clock In
+- ✅ **Check-Location Endpoint** (Aug 2026): `POST /api/attendance/check-location` returns distance/within_geofence/bypass status
 
 ## Pending Items (Prioritized)
 
@@ -100,13 +104,13 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 
 ## Key API Endpoints
 - Auth: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-- Attendance: `POST /api/attendance/clock-in`, `POST /api/attendance/clock-out`, `POST /api/attendance/break`
+- Attendance: `POST /api/attendance/clock-in`, `POST /api/attendance/clock-out`, `POST /api/attendance/break`, `POST /api/attendance/check-location`
 - Leaves: `GET/POST /api/leaves`, `PUT /api/admin/leaves/{id}`
 - Leave Balance: `GET/PUT /api/admin/employees/{id}/leave-balance`
 - Payroll: `GET /api/admin/payroll/summary`, `POST /api/admin/payroll/generate`
 - Change Requests: `GET/POST /api/change-requests`, `PUT /api/admin/change-requests/{id}/manager-action`, `PUT /api/admin/change-requests/{id}/admin-action`
-- Org Chart: `GET/POST/PUT/DELETE /api/admin/org-chart`, `POST /api/admin/org-chart/{id}/image`, `GET /api/org-levels`, `PUT /api/admin/org-levels`
+- Org Chart: `GET/POST/PUT/DELETE /api/admin/org-chart`
 - Role Perms: `GET/PUT /api/admin/role-permissions`, `GET /api/my-permissions`
-- Office: `GET/PUT /api/admin/office-settings`
+- Office: `GET/PUT /api/admin/office-settings` (supports `geofence_bypass` field)
 - Notifications: `GET /api/admin/notifications`
 - Heatmap: `GET /api/admin/attendance/heatmap`

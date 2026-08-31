@@ -272,13 +272,15 @@ async def get_office_settings():
             "longitude": float(settings["longitude"]),
             "radius_km": float(settings["radius_km"]),
             "name": settings.get("office_name", "Main Headquarters (Nagercoil)"),
-            "address": settings.get("address", "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001")
+            "address": settings.get("address", "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001"),
+            "geofence_bypass": bool(settings.get("geofence_bypass", 0))
         }
     return {
         "latitude": DEFAULT_OFFICE_LAT, "longitude": DEFAULT_OFFICE_LNG,
         "radius_km": DEFAULT_OFFICE_RADIUS_KM,
         "name": "Main Headquarters (Nagercoil)",
-        "address": "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001"
+        "address": "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001",
+        "geofence_bypass": False
     }
 
 async def check_geofence(lat, lng, user_id):
@@ -293,10 +295,12 @@ async def check_geofence(lat, lng, user_id):
         return True, "WFH"
     # Check office geofence
     office = await get_office_settings()
+    if office.get("geofence_bypass"):
+        return True, "Office"
     distance = haversine_km(lat, lng, office["latitude"], office["longitude"])
     if distance <= office["radius_km"]:
         return True, "Office"
-    return False, f"Outside office area ({distance:.1f} km away, max {office['radius_km']} km)"
+    return False, f"Outside office area ({distance:.1f} km away from {office['name']}, max {office['radius_km']} km allowed)"
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -346,6 +350,7 @@ class OfficeSettingsUpdate(BaseModel):
     radius_km: float = 0.5
     office_name: str = "Main Headquarters (Nagercoil)"
     address: str = "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001"
+    geofence_bypass: bool = False
 
 class SalaryUpdate(BaseModel):
     basic_salary: float
@@ -806,6 +811,40 @@ async def get_my_shift(request: Request):
         "start_time": info["start"],
         "end_time": info["end"],
         "is_set": bool(shift_str)
+    }
+
+@attendance_router.post("/check-location")
+async def check_location(request: Request):
+    """Pre-check if employee's current GPS location is within geofence."""
+    user = await get_current_user(request)
+    try:
+        body = await request.json()
+        lat = body.get("latitude")
+        lng = body.get("longitude")
+    except Exception:
+        raise HTTPException(status_code=400, detail="latitude and longitude required")
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="latitude and longitude required")
+    office = await get_office_settings()
+    distance = haversine_km(lat, lng, office["latitude"], office["longitude"])
+    within = office.get("geofence_bypass") or distance <= office["radius_km"]
+    # Also check WFH
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    wfh = await execute_query(
+        "SELECT id FROM wfh_requests WHERE user_id = %s AND date = %s AND status = 'approved'",
+        (user["id"], today), fetch_one=True
+    )
+    return {
+        "your_lat": lat,
+        "your_lng": lng,
+        "office_lat": office["latitude"],
+        "office_lng": office["longitude"],
+        "office_name": office["name"],
+        "distance_km": round(distance, 2),
+        "radius_km": office["radius_km"],
+        "within_geofence": within,
+        "geofence_bypass": office.get("geofence_bypass", False),
+        "has_wfh_today": bool(wfh)
     }
 
 # ============== LEAVE ROUTES ==============
@@ -2706,15 +2745,15 @@ async def update_office_settings_api(data: OfficeSettingsUpdate, request: Reques
     existing = await execute_query("SELECT id FROM office_settings WHERE id = 1", fetch_one=True)
     if existing:
         await execute_query(
-            "UPDATE office_settings SET latitude=%s, longitude=%s, radius_km=%s, office_name=%s, address=%s, updated_at=%s WHERE id=1",
-            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, now)
+            "UPDATE office_settings SET latitude=%s, longitude=%s, radius_km=%s, office_name=%s, address=%s, geofence_bypass=%s, updated_at=%s WHERE id=1",
+            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, int(data.geofence_bypass), now)
         )
     else:
         await execute_query(
-            "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, address, updated_at) VALUES (1,%s,%s,%s,%s,%s,%s)",
-            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, now)
+            "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, address, geofence_bypass, updated_at) VALUES (1,%s,%s,%s,%s,%s,%s,%s)",
+            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, int(data.geofence_bypass), now)
         )
-    return {"message": "Office settings updated", "latitude": data.latitude, "longitude": data.longitude, "radius_km": data.radius_km}
+    return {"message": "Office settings updated", "latitude": data.latitude, "longitude": data.longitude, "radius_km": data.radius_km, "geofence_bypass": data.geofence_bypass}
 
 # Employee location map data for admin
 @admin_router.get("/attendance/locations")
@@ -3137,6 +3176,16 @@ async def startup():
                 logger.info("Added wfh_limit column to users")
             except Exception as e:
                 logger.warning(f"Could not add wfh_limit column: {e}")
+
+        # Migration: Add geofence_bypass to office_settings
+        try:
+            await execute_query("SELECT geofence_bypass FROM office_settings LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE office_settings ADD COLUMN geofence_bypass TINYINT(1) DEFAULT 0")
+                logger.info("Added geofence_bypass column to office_settings")
+            except Exception as e:
+                logger.warning(f"Could not add geofence_bypass column: {e}")
 
         # Migration: Add location columns to attendance
         for col in ["clock_in_lat DOUBLE", "clock_in_lng DOUBLE", "clock_in_address TEXT", "clock_out_lat DOUBLE", "clock_out_lng DOUBLE", "clock_out_address TEXT", "location_type VARCHAR(20)"]:
