@@ -524,13 +524,21 @@ export default function AdminDashboard() {
   };
 
   const handleSaveOfficeSettings = async () => {
+    // Sanitize: replace NaN with last valid value before sending
+    const payload = {
+      ...officeForm,
+      latitude: isNaN(officeForm.latitude) ? 8.1815 : officeForm.latitude,
+      longitude: isNaN(officeForm.longitude) ? 77.4294 : officeForm.longitude,
+      radius_km: isNaN(officeForm.radius_km) ? 0.5 : officeForm.radius_km,
+      geofence_bypass: Boolean(officeForm.geofence_bypass),
+    };
     try {
-      await api.put("/admin/office-settings", officeForm);
+      await api.put("/admin/office-settings", payload);
       toast.success("Office location settings saved!");
-      setOfficeSettings({ ...officeForm, name: officeForm.office_name });
+      setOfficeSettings({ ...payload, name: payload.office_name });
       setOfficeDialogOpen(false);
     } catch (error) {
-      toast.error("Failed to save office settings");
+      toast.error(error.response?.data?.detail || "Failed to save office settings");
     }
   };
 
@@ -2520,17 +2528,17 @@ export default function AdminDashboard() {
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Latitude</Label>
-                            <Input data-testid="office-lat-input" type="number" step="0.0001" value={officeForm.latitude} onChange={(e) => setOfficeForm({ ...officeForm, latitude: parseFloat(e.target.value) })} />
+                            <Input data-testid="office-lat-input" type="number" step="0.0001" value={officeForm.latitude} onChange={(e) => { const v = parseFloat(e.target.value); setOfficeForm({ ...officeForm, latitude: isNaN(v) ? officeForm.latitude : v }); }} />
                           </div>
                           <div className="space-y-2">
                             <Label>Longitude</Label>
-                            <Input data-testid="office-lng-input" type="number" step="0.0001" value={officeForm.longitude} onChange={(e) => setOfficeForm({ ...officeForm, longitude: parseFloat(e.target.value) })} />
+                            <Input data-testid="office-lng-input" type="number" step="0.0001" value={officeForm.longitude} onChange={(e) => { const v = parseFloat(e.target.value); setOfficeForm({ ...officeForm, longitude: isNaN(v) ? officeForm.longitude : v }); }} />
                           </div>
                         </div>
                         <div className="space-y-2">
                           <Label>Allowed Radius (km)</Label>
-                          <Input data-testid="office-radius-input" type="number" step="0.1" value={officeForm.radius_km} onChange={(e) => setOfficeForm({ ...officeForm, radius_km: parseFloat(e.target.value) })} />
-                          <p className="text-xs text-slate-400">{(officeForm.radius_km * 1000).toFixed(0)} meters — employees must be within this range to clock in</p>
+                          <Input data-testid="office-radius-input" type="number" step="0.1" value={officeForm.radius_km} onChange={(e) => { const v = parseFloat(e.target.value); setOfficeForm({ ...officeForm, radius_km: isNaN(v) ? officeForm.radius_km : v }); }} />
+                          <p className="text-xs text-slate-400">{((officeForm.radius_km || 0) * 1000).toFixed(0)} meters — employees must be within this range to clock in</p>
                         </div>
                         <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-xl">
                           <div>
