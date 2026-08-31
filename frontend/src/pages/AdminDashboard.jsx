@@ -999,7 +999,9 @@ export default function AdminDashboard() {
             <SignOut className="h-4 w-4" />
             Sign Out
           </Button>
-          <ResetPortalButton api={api} onDone={() => { fetchData(); }} />
+          {user?.role === "admin" && (
+            <ResetPortalButton api={api} onDone={() => { fetchData(); }} />
+          )}
         </div>
       </aside>
 
