@@ -13,8 +13,9 @@ import {
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
   GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning, Sun, Moon,
-  TreeStructure, ShieldCheck, WifiNone, WifiHigh, PlayCircle, StopCircle
+  TreeStructure, ShieldCheck, WifiNone, WifiHigh, PlayCircle, StopCircle, DotsThreeVertical
 } from "@phosphor-icons/react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "../components/ui/dropdown-menu";
 import { CRApproveDialog } from "../components/CRApproveDialog";
 import { OrgTreeNode, OrgTreeView } from "../components/OrgTreeNode";
 import { ResetPortalButton } from "../components/ResetPortalButton";
@@ -1382,57 +1383,50 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td className="table-cell">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-nowrap">
                           {emp.role !== "admin" && (
                             <>
-                              <Button
-                                data-testid={`set-shift-${emp.id}`}
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openShiftModal(emp)}
-                                className="text-slate-400 hover:text-[#002FA7] h-8 w-8 p-0"
-                                title="Assign Shift"
-                              >
-                                <ClockClockwise className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                data-testid={`set-salary-${emp.id}`}
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openSalaryModal(emp)}
-                                className="text-slate-400 hover:text-green-600 h-8 w-8 p-0"
-                                title="Set Salary"
-                              >
-                                <CurrencyDollar className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                data-testid={`edit-leave-balance-${emp.id}`}
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openLeaveBalanceModal(emp)}
-                                className="text-slate-400 hover:text-amber-600 h-8 w-8 p-0"
-                                title="Edit Leave Balance"
-                              >
-                                <CalendarCheck className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                data-testid={`reset-password-${emp.id}`}
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedEmployee(emp);
-                                  setResetPasswordValue("");
-                                  setResetPasswordOpen(true);
-                                }}
-                                className="text-slate-400 hover:text-orange-500 h-8 w-8 p-0"
-                                title="Reset Password"
-                              >
-                                <Key className="h-4 w-4" />
-                              </Button>
+                              {/* Secondary actions in a dropdown */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-slate-400 hover:text-slate-700 h-8 w-8 p-0"
+                                    title="More actions"
+                                  >
+                                    <DotsThreeVertical className="h-4 w-4" weight="bold" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48">
+                                  <DropdownMenuItem onClick={() => openShiftModal(emp)} className="gap-2 cursor-pointer">
+                                    <ClockClockwise className="h-4 w-4 text-slate-500" />
+                                    Assign Shift
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openSalaryModal(emp)} className="gap-2 cursor-pointer">
+                                    <CurrencyDollar className="h-4 w-4 text-slate-500" />
+                                    Set Salary
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openLeaveBalanceModal(emp)} className="gap-2 cursor-pointer">
+                                    <CalendarCheck className="h-4 w-4 text-slate-500" />
+                                    Edit Leave Balance
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => { setSelectedEmployee(emp); setResetPasswordValue(""); setResetPasswordOpen(true); }}
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <Key className="h-4 w-4 text-slate-500" />
+                                    Reset Password
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+
+                              {/* GPS toggle */}
                               <button
                                 data-testid={`gps-toggle-${emp.id}`}
                                 onClick={() => handleToggleGps(emp)}
-                                title={emp.gps_tracking_enabled !== false ? "GPS Tracking ON — click to disable" : "GPS Tracking OFF — click to enable"}
+                                title={emp.gps_tracking_enabled !== false ? "GPS ON — click to disable" : "GPS OFF — click to enable"}
                                 className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${emp.gps_tracking_enabled !== false ? 'bg-emerald-50 text-emerald-600 border-emerald-300 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                               >
                                 {emp.gps_tracking_enabled !== false
@@ -1440,28 +1434,32 @@ export default function AdminDashboard() {
                                   : <WifiNone className="h-4 w-4" weight="bold" />
                                 }
                               </button>
+
+                              {/* Timer toggle */}
                               <button
                                 data-testid={`timer-toggle-${emp.id}`}
                                 onClick={() => handleToggleTimerAccess(emp)}
-                                title={emp.timer_access_enabled ? "Flexible Timer ON — click to disable" : "Flexible Timer OFF — click to enable"}
+                                title={emp.timer_access_enabled ? "Timer ON — click to disable" : "Timer OFF — click to enable"}
                                 className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${emp.timer_access_enabled ? 'bg-violet-50 text-violet-600 border-violet-300 hover:bg-violet-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                               >
-                                {emp.timer_access_enabled
-                                  ? <Timer className="h-4 w-4" weight="bold" />
-                                  : <Timer className="h-4 w-4" weight="regular" />
-                                }
+                                <Timer className="h-4 w-4" weight={emp.timer_access_enabled ? "bold" : "regular"} />
                               </button>
                             </>
                           )}
+
+                          {/* Edit */}
                           <Button
                             data-testid={`edit-employee-${emp.id}`}
                             variant="ghost"
                             size="sm"
                             onClick={() => openEditModal(emp)}
                             className="text-slate-400 hover:text-[#002FA7] h-8 w-8 p-0"
+                            title="Edit Employee"
                           >
                             <PencilSimple className="h-4 w-4" />
                           </Button>
+
+                          {/* Delete */}
                           {emp.role !== "admin" && (
                             <Button
                               data-testid={`delete-employee-${emp.id}`}
@@ -1469,6 +1467,7 @@ export default function AdminDashboard() {
                               size="sm"
                               onClick={() => handleDeleteEmployee(emp.id)}
                               className="text-slate-400 hover:text-red-500 h-8 w-8 p-0"
+                              title="Delete Employee"
                             >
                               <Trash className="h-4 w-4" />
                             </Button>
