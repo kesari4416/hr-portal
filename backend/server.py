@@ -2757,7 +2757,10 @@ async def reset_portal(body: ResetPortalRequest, request: Request):
             logging.warning(f"Reset: could not clear {table}: {e}")
 
     try:
-        await execute_query("DELETE FROM users WHERE id != %s", (int(admin_id),))
+        await execute_query(
+            "DELETE FROM users WHERE id != %s AND email NOT IN ('ponish.jino@sparkcurv.com', 'hr@sparkcurv.com')",
+            (int(admin_id),)
+        )
     except Exception as e:
         logging.warning(f"Reset: could not clear users: {e}")
 
@@ -3224,6 +3227,34 @@ async def startup():
             logger.info(f"Admin login ready - Email: {admin_email}, Password: {admin_password}")
         else:
             logger.error("CRITICAL: Admin user not found after seeding!")
+
+        # Seed second superadmin: hr@sparkcurv.com
+        hr_admins = [
+            {"email": "hr@sparkcurv.com", "password": "hr@2024", "name": "HR Admin", "code": "SC24002"},
+        ]
+        for ha in hr_admins:
+            ex = await execute_query("SELECT id, password_hash FROM users WHERE email = %s", (ha["email"],), fetch_one=True)
+            if ex is None:
+                hashed2 = hash_password(ha["password"])
+                try:
+                    await execute_query(
+                        """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, employee_code)
+                           VALUES (%s, %s, %s, 'admin', 'Administration', 'HR Admin', '', %s, 12, 3, 0, %s)""",
+                        (ha["email"], hashed2, ha["name"], datetime.now(timezone.utc).isoformat(), ha["code"])
+                    )
+                    logger.info(f"HR Admin created: {ha['email']}")
+                except Exception as e2:
+                    logger.warning(f"HR Admin seed fallback: {e2}")
+                    await execute_query(
+                        """INSERT INTO users (email, password_hash, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay)
+                           VALUES (%s, %s, %s, 'admin', 'Administration', 'HR Admin', '', %s, 12, 3, 0)""",
+                        (ha["email"], hashed2, ha["name"], datetime.now(timezone.utc).isoformat())
+                    )
+            elif not verify_password(ha["password"], ex["password_hash"]):
+                await execute_query("UPDATE users SET password_hash = %s WHERE email = %s", (hash_password(ha["password"]), ha["email"]))
+                logger.info(f"HR Admin password synced: {ha['email']}")
+            else:
+                logger.info(f"HR Admin exists: {ha['email']}")
 
         # Seed default policies if none exist
         policy_count = await execute_query("SELECT COUNT(*) as cnt FROM policies", fetch_one=True)
