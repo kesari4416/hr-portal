@@ -2742,17 +2742,21 @@ async def get_office_settings_api(request: Request):
 async def update_office_settings_api(data: OfficeSettingsUpdate, request: Request):
     await require_admin(request)
     now = datetime.now(timezone.utc).isoformat()
-    existing = await execute_query("SELECT id FROM office_settings WHERE id = 1", fetch_one=True)
-    if existing:
-        await execute_query(
-            "UPDATE office_settings SET latitude=%s, longitude=%s, radius_km=%s, office_name=%s, address=%s, geofence_bypass=%s, updated_at=%s WHERE id=1",
-            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, int(data.geofence_bypass), now)
-        )
-    else:
-        await execute_query(
-            "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, address, geofence_bypass, updated_at) VALUES (1,%s,%s,%s,%s,%s,%s,%s)",
-            (data.latitude, data.longitude, data.radius_km, data.office_name, data.address, int(data.geofence_bypass), now)
-        )
+    try:
+        existing = await execute_query("SELECT id FROM office_settings WHERE id = 1", fetch_one=True)
+        if existing:
+            await execute_query(
+                "UPDATE office_settings SET latitude=%s, longitude=%s, radius_km=%s, office_name=%s, address=%s, geofence_bypass=%s, updated_at=%s WHERE id=1",
+                (data.latitude, data.longitude, data.radius_km, data.office_name, data.address[:500] if data.address else "", int(data.geofence_bypass), now)
+            )
+        else:
+            await execute_query(
+                "INSERT INTO office_settings (id, latitude, longitude, radius_km, office_name, address, geofence_bypass, updated_at) VALUES (1,%s,%s,%s,%s,%s,%s,%s)",
+                (data.latitude, data.longitude, data.radius_km, data.office_name, data.address[:500] if data.address else "", int(data.geofence_bypass), now)
+            )
+    except Exception as e:
+        logger.error(f"Office settings update error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     return {"message": "Office settings updated", "latitude": data.latitude, "longitude": data.longitude, "radius_km": data.radius_km, "geofence_bypass": data.geofence_bypass}
 
 # Employee location map data for admin
