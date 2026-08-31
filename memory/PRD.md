@@ -94,6 +94,13 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ **GPS Status Panel** (Aug 2026): Employee dashboard shows live distance from office + within/outside geofence indicator before clicking Clock In
 - ✅ **GPS Tracking Per-Employee Toggle** (Aug 2026): Admin can enable/disable GPS tracking per employee from the Employees table. Green WiFi icon = ON, gray = OFF. When disabled: employee can clock in from anywhere without GPS check. Employee dashboard shows "GPS tracking disabled by admin" badge. New column: `users.gps_tracking_enabled` (TINYINT 1, default 1)
 
+## What's Been Done (Recent)
+
+### Aug 2026 (latest session)
+- ✅ **GPS Bypass for GPS-disabled employees**: Fixed `clock-out`, `break/start`, `break/end` backend endpoints — all now check `gps_tracking_enabled` before requiring location (previously only `clock-in` had this check)
+- ✅ **Frontend GPS fix**: `checkGPSStatus()` auto-call on load now skipped when GPS is disabled for the employee; break handlers (start/end) also respect GPS disable toggle
+- ✅ **Unified Timer Card**: Flexible Timer merged inside the Time Tracker card as a single container — controlled by `timer_access_enabled` admin toggle. Old standalone `lg:col-span-12` flexible timer card removed.
+
 ## Pending Items (Prioritized)
 
 ### P1 - High  

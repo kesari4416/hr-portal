@@ -559,7 +559,12 @@ async def clock_out(request: Request):
 
     if lat is None or lng is None:
         if not is_wfh:
-            raise HTTPException(status_code=400, detail="Location is required for clock out.")
+            # Check GPS tracking setting for this employee
+            user_gps_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user["id"],), fetch_one=True)
+            gps_val = user_gps_row.get("gps_tracking_enabled") if user_gps_row else None
+            gps_enabled = bool(int(gps_val)) if gps_val is not None else True
+            if gps_enabled:
+                raise HTTPException(status_code=400, detail="Location is required for clock out.")
         lat = 0.0
         lng = 0.0
 
@@ -644,7 +649,14 @@ async def start_break(request: Request):
         lng = None
 
     if lat is None or lng is None:
-        raise HTTPException(status_code=400, detail="Location is required for break.")
+        # Check GPS tracking setting for this employee
+        user_gps_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user["id"],), fetch_one=True)
+        gps_val = user_gps_row.get("gps_tracking_enabled") if user_gps_row else None
+        gps_enabled = bool(int(gps_val)) if gps_val is not None else True
+        if gps_enabled:
+            raise HTTPException(status_code=400, detail="Location is required for break.")
+        lat = 0.0
+        lng = 0.0
 
     attendance = await execute_query(
         "SELECT * FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True
@@ -686,7 +698,14 @@ async def end_break(request: Request):
         lng = None
 
     if lat is None or lng is None:
-        raise HTTPException(status_code=400, detail="Location is required for ending break.")
+        # Check GPS tracking setting for this employee
+        user_gps_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user["id"],), fetch_one=True)
+        gps_val = user_gps_row.get("gps_tracking_enabled") if user_gps_row else None
+        gps_enabled = bool(int(gps_val)) if gps_val is not None else True
+        if gps_enabled:
+            raise HTTPException(status_code=400, detail="Location is required for ending break.")
+        lat = 0.0
+        lng = 0.0
 
     attendance = await execute_query(
         "SELECT * FROM attendance WHERE user_id = %s AND date = %s AND clock_out IS NULL", (user["id"], today), fetch_one=True

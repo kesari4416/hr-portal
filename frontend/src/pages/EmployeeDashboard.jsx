@@ -155,8 +155,8 @@ export default function EmployeeDashboard() {
 
   useEffect(() => {
     fetchData();
-    // Auto check GPS status when dashboard loads
-    if (!attendanceStatus.clocked_in) {
+    // Auto check GPS status when dashboard loads (skip if GPS tracking disabled for this employee)
+    if (!attendanceStatus.clocked_in && user?.gps_tracking_enabled !== false) {
       checkGPSStatus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -327,8 +327,12 @@ export default function EmployeeDashboard() {
   const handleStartBreak = async () => {
     setLoading(true);
     try {
-      const location = await getLocation();
-      await api.post("/attendance/break/start", location);
+      const gpsDisabled = user?.gps_tracking_enabled === false;
+      let location = null;
+      if (!gpsDisabled) {
+        location = await getLocation();
+      }
+      await api.post("/attendance/break/start", location || {});
       toast.success("Break started!");
       fetchData();
     } catch (error) {
@@ -341,8 +345,12 @@ export default function EmployeeDashboard() {
   const handleEndBreak = async () => {
     setLoading(true);
     try {
-      const location = await getLocation();
-      await api.post("/attendance/break/end", location);
+      const gpsDisabled = user?.gps_tracking_enabled === false;
+      let location = null;
+      if (!gpsDisabled) {
+        location = await getLocation();
+      }
+      await api.post("/attendance/break/end", location || {});
       toast.success("Break ended!");
       fetchData();
     } catch (error) {
@@ -875,103 +883,69 @@ export default function EmployeeDashboard() {
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* ── Flexible Timer Card (only visible when admin grants access) ── */}
+              {/* ── Flexible Timer (merged into Time Tracker, only when admin enabled) ── */}
               {user?.timer_access_enabled && (
-                <div data-testid="flexible-timer-card" className="lg:col-span-12 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                  <div className="flex items-center justify-between mb-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-9 h-9 bg-violet-50 rounded-xl">
-                        <Timer className="h-5 w-5 text-violet-600" weight="duotone" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-800 text-sm">Flexible Timer</h3>
-                        <p className="text-xs text-slate-400">Track your work hours flexibly — 8h target per day</p>
-                      </div>
+                <div data-testid="flexible-timer-section" className="mt-5 pt-5 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center justify-center w-7 h-7 bg-violet-50 rounded-lg">
+                      <Timer className="h-4 w-4 text-violet-600" weight="duotone" />
                     </div>
-                    {/* 8h progress */}
-                    <div className="hidden sm:flex items-center gap-3">
-                      <div className="text-right">
-                        <p className="text-xs text-slate-400">Today's Progress</p>
-                        <p className="text-sm font-bold text-slate-700">
-                          {formatTime(timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0))} <span className="text-slate-400 font-normal">/ 8h 00m</span>
-                        </p>
-                      </div>
-                      <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.min(100, ((timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0)) / 28800) * 100)}%`,
-                            background: (timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0)) >= 28800 ? '#10b981' : '#7c3aed'
-                          }}
-                        />
-                      </div>
+                    <span className="text-sm font-bold text-slate-800">Flexible Timer</span>
+                    <span className="ml-auto text-xs text-slate-400 font-mono">
+                      {formatTime(timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0))} / 8h 00m
+                    </span>
+                  </div>
+
+                  {/* 8h progress bar */}
+                  <div className="mb-3">
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(100, ((timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0)) / 28800) * 100)}%`,
+                          background: (timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0)) >= 28800 ? '#10b981' : '#7c3aed'
+                        }}
+                      />
                     </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-center gap-6">
-                    {/* Live clock display */}
-                    <div className="flex flex-col items-center justify-center w-40 h-40 rounded-full border-4 border-violet-100 bg-violet-50 shrink-0">
-                      <span className="text-3xl font-mono font-extrabold text-violet-700 tracking-widest">
-                        {formatTime(timerStatus.is_running ? liveElapsed : 0)}
+                  {/* Live session display */}
+                  {timerStatus.is_running && (
+                    <div className="flex items-center justify-center gap-2 mb-3 py-2 bg-violet-50 rounded-xl">
+                      <span className="text-2xl font-mono font-extrabold text-violet-700 tracking-widest">
+                        {formatTime(liveElapsed)}
                       </span>
-                      <span className="text-xs text-violet-400 mt-1">{timerStatus.is_running ? "Running" : "Stopped"}</span>
+                      <span className="text-xs text-violet-400 self-end mb-0.5 animate-pulse">running</span>
                     </div>
+                  )}
 
-                    <div className="flex-1 space-y-4 w-full">
-                      {/* Start / Stop button */}
-                      <button
-                        data-testid="flexible-timer-btn"
-                        onClick={timerStatus.is_running ? handleTimerStop : handleTimerStart}
-                        className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-bold text-lg transition-all shadow-sm active:scale-95 ${timerStatus.is_running ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white'}`}
-                      >
-                        {timerStatus.is_running
-                          ? <><StopCircle className="h-6 w-6" weight="fill" /> Stop Timer</>
-                          : <><PlayCircle className="h-6 w-6" weight="fill" /> Start Timer</>
-                        }
-                      </button>
+                  {/* Start / Stop button */}
+                  <button
+                    data-testid="flexible-timer-btn"
+                    onClick={timerStatus.is_running ? handleTimerStop : handleTimerStart}
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all shadow-sm active:scale-95 ${
+                      timerStatus.is_running ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white'
+                    }`}
+                  >
+                    {timerStatus.is_running
+                      ? <><StopCircle className="h-5 w-5" weight="fill" /> Stop Timer</>
+                      : <><PlayCircle className="h-5 w-5" weight="fill" /> Start Timer</>
+                    }
+                  </button>
 
-                      {/* Daily total */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-slate-50 rounded-xl p-3 text-center">
-                          <p className="text-xs text-slate-400 mb-0.5">Total Today</p>
-                          <p className="font-bold text-slate-800 font-mono">
-                            {formatTime(timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0))}
-                          </p>
-                        </div>
-                        <div className="bg-slate-50 rounded-xl p-3 text-center">
-                          <p className="text-xs text-slate-400 mb-0.5">Sessions</p>
-                          <p className="font-bold text-slate-800">{timerStatus.sessions?.length || 0}</p>
-                        </div>
-                      </div>
-
-                      {/* Sessions list */}
-                      {timerStatus.sessions?.length > 0 && (
-                        <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
-                          {timerStatus.sessions.map((s, i) => (
-                            <div key={s.id || i} className="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-3 py-1.5">
-                              <div className="flex items-center gap-2 text-slate-500">
-                                {s.stopped_at
-                                  ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" weight="fill" />
-                                  : <Timer className="h-3.5 w-3.5 text-violet-500 animate-pulse" weight="duotone" />
-                                }
-                                <span>Session {i + 1}</span>
-                                <span className="text-slate-300">•</span>
-                                <span>{s.started_at ? new Date(s.started_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</span>
-                                {s.stopped_at && <><span className="text-slate-300">→</span><span>{new Date(s.stopped_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></>}
-                              </div>
-                              <span className="font-semibold text-slate-600 font-mono">
-                                {s.stopped_at ? formatTime(s.duration_seconds || 0) : <span className="text-violet-500">running</span>}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                  {/* Session count */}
+                  {timerStatus.sessions?.length > 0 && (
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+                      <span>{timerStatus.sessions.length} session(s) today</span>
+                      <span className="font-mono font-semibold text-slate-600">
+                        {formatTime(timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0))} total
+                      </span>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
+              </div>
 
               {/* Leave & Permission Balance Cards */}
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
