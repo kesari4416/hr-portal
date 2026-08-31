@@ -142,7 +142,7 @@ async def get_current_user(request: Request) -> dict:
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
         user = await execute_query(
-            "SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, gps_tracking_enabled FROM users WHERE id = %s",
+            "SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, gps_tracking_enabled, timer_access_enabled FROM users WHERE id = %s",
             (int(payload["sub"]),), fetch_one=True
         )
         if not user:
@@ -454,7 +454,7 @@ async def login(user_data: UserLogin, response: Response):
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/")
 
-    return {"id": str(user["id"]), "email": email, "name": user["name"], "role": user["role"], "department": user.get("department", "General"), "position": user.get("position", "Employee"), "avatar_url": user.get("avatar_url"), "employee_code": user.get("employee_code", ""), "gps_tracking_enabled": bool(int(user["gps_tracking_enabled"]) if user.get("gps_tracking_enabled") is not None else 1)}
+    return {"id": str(user["id"]), "email": email, "name": user["name"], "role": user["role"], "department": user.get("department", "General"), "position": user.get("position", "Employee"), "avatar_url": user.get("avatar_url"), "employee_code": user.get("employee_code", ""), "gps_tracking_enabled": bool(int(user["gps_tracking_enabled"]) if user.get("gps_tracking_enabled") is not None else 1), "timer_access_enabled": bool(int(user["timer_access_enabled"]) if user.get("timer_access_enabled") is not None else 0)}
 
 @auth_router.post("/logout")
 async def logout(response: Response):
@@ -468,6 +468,7 @@ async def get_me(request: Request):
     user.pop("password_hash", None)
     user.pop("basic_salary", None)
     user["gps_tracking_enabled"] = bool(int(user["gps_tracking_enabled"]) if user.get("gps_tracking_enabled") is not None else 1)
+    user["timer_access_enabled"] = bool(int(user["timer_access_enabled"]) if user.get("timer_access_enabled") is not None else 0)
     return user
 
 @auth_router.get("/password-reset-info")
@@ -859,6 +860,88 @@ async def check_location(request: Request):
         "has_wfh_today": bool(wfh)
     }
 
+# ── Flexible Timer ──────────────────────────────────────────────────────────
+
+@attendance_router.post("/timer/start")
+async def timer_start(request: Request):
+    """Start a flexible work timer session for the employee."""
+    user = await get_current_user(request)
+    # Check access
+    timer_row = await execute_query("SELECT timer_access_enabled FROM users WHERE id = %s", (user["id"],), fetch_one=True)
+    timer_val = timer_row.get("timer_access_enabled") if timer_row else None
+    if not (bool(int(timer_val)) if timer_val is not None else False):
+        raise HTTPException(status_code=403, detail="Timer access not enabled by admin")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Check no running session
+    running = await execute_query(
+        "SELECT id FROM time_tracker_sessions WHERE user_id = %s AND date = %s AND stopped_at IS NULL",
+        (user["id"], today), fetch_one=True
+    )
+    if running:
+        raise HTTPException(status_code=400, detail="Timer already running. Stop it before starting again.")
+    now_str = datetime.now(timezone.utc).isoformat()
+    sid = await execute_query(
+        "INSERT INTO time_tracker_sessions (user_id, user_name, date, started_at) VALUES (%s, %s, %s, %s)",
+        (user["id"], user["name"], today, now_str), last_id=True
+    )
+    return {"message": "Timer started", "session_id": sid, "started_at": now_str}
+
+@attendance_router.post("/timer/stop")
+async def timer_stop(request: Request):
+    """Stop the current running flexible work timer session."""
+    user = await get_current_user(request)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    running = await execute_query(
+        "SELECT id, started_at FROM time_tracker_sessions WHERE user_id = %s AND date = %s AND stopped_at IS NULL ORDER BY id DESC LIMIT 1",
+        (user["id"], today), fetch_one=True
+    )
+    if not running:
+        raise HTTPException(status_code=400, detail="No running timer session found.")
+    now_dt = datetime.now(timezone.utc)
+    now_str = now_dt.isoformat()
+    # Calculate duration
+    try:
+        from dateutil import parser as dtparser
+        start_dt = dtparser.parse(running["started_at"])
+        duration_sec = int((now_dt - start_dt).total_seconds())
+    except Exception:
+        duration_sec = 0
+    await execute_query(
+        "UPDATE time_tracker_sessions SET stopped_at = %s, duration_seconds = %s WHERE id = %s",
+        (now_str, duration_sec, running["id"])
+    )
+    return {"message": "Timer stopped", "duration_seconds": duration_sec}
+
+@attendance_router.get("/timer/today")
+async def timer_today(request: Request):
+    """Get today's timer sessions and total tracked time."""
+    user = await get_current_user(request)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    sessions = await execute_query(
+        "SELECT id, started_at, stopped_at, duration_seconds FROM time_tracker_sessions WHERE user_id = %s AND date = %s ORDER BY id ASC",
+        (user["id"], today), fetch_all=True
+    )
+    sessions = [dict(s) for s in (sessions or [])]
+    total_seconds = sum(s.get("duration_seconds", 0) or 0 for s in sessions if s.get("stopped_at"))
+    running = next((s for s in sessions if not s.get("stopped_at")), None)
+    # Calculate live seconds for running session
+    live_seconds = 0
+    if running:
+        try:
+            from dateutil import parser as dtparser
+            start_dt = dtparser.parse(running["started_at"])
+            live_seconds = int((datetime.now(timezone.utc) - start_dt).total_seconds())
+        except Exception:
+            live_seconds = 0
+    return {
+        "is_running": bool(running),
+        "current_session_started_at": running["started_at"] if running else None,
+        "live_seconds": live_seconds,
+        "total_seconds": total_seconds,
+        "sessions": sessions,
+        "target_seconds": 8 * 3600
+    }
+
 # ============== LEAVE ROUTES ==============
 
 @leave_router.get("/balance")
@@ -976,12 +1059,13 @@ async def cancel_leave_request(leave_id: str, request: Request):
 @admin_router.get("/employees")
 async def get_all_employees(request: Request):
     await require_admin_or_manager(request)
-    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled FROM users ORDER BY created_at DESC", fetch_all=True)
+    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled, timer_access_enabled FROM users ORDER BY created_at DESC", fetch_all=True)
     result = []
     for emp in (rows or []):
         e = dict(emp)
         e["id"] = str(e.pop("id"))
-        e["gps_tracking_enabled"] = bool(e.get("gps_tracking_enabled", 1))
+        e["gps_tracking_enabled"] = bool(int(e["gps_tracking_enabled"]) if e.get("gps_tracking_enabled") is not None else 1)
+        e["timer_access_enabled"] = bool(int(e["timer_access_enabled"]) if e.get("timer_access_enabled") is not None else 0)
         result.append(e)
     return result
 
@@ -1085,6 +1169,20 @@ async def toggle_gps_tracking(employee_id: str, request: Request):
     if result == 0:
         raise HTTPException(status_code=404, detail="Employee not found")
     return {"message": f"GPS tracking {'enabled' if enabled else 'disabled'}", "gps_tracking_enabled": enabled}
+
+@admin_router.put("/employees/{employee_id}/timer-access")
+async def toggle_timer_access(employee_id: str, request: Request):
+    """Admin can enable or disable flexible timer access for an employee."""
+    await require_admin(request)
+    body = await request.json()
+    enabled = bool(body.get("timer_access_enabled", False))
+    result = await execute_query(
+        "UPDATE users SET timer_access_enabled = %s WHERE id = %s AND role != 'admin'",
+        (int(enabled), int(employee_id))
+    )
+    if result == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return {"message": f"Timer access {'enabled' if enabled else 'disabled'}", "timer_access_enabled": enabled}
 
 @admin_router.post("/employees/{employee_id}/reset-password")
 async def reset_employee_password(employee_id: str, data: PasswordReset, request: Request):
@@ -3227,6 +3325,30 @@ async def startup():
                 logger.info("Added gps_tracking_enabled column to users")
             except Exception as e:
                 logger.warning(f"Could not add gps_tracking_enabled column: {e}")
+
+        # Migration: Add timer_access_enabled to users
+        try:
+            await execute_query("SELECT timer_access_enabled FROM users LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE users ADD COLUMN timer_access_enabled TINYINT(1) DEFAULT 0")
+                logger.info("Added timer_access_enabled column to users")
+            except Exception as e:
+                logger.warning(f"Could not add timer_access_enabled column: {e}")
+
+        # Create time_tracker_sessions table
+        await execute_query("""
+            CREATE TABLE IF NOT EXISTS time_tracker_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                user_name VARCHAR(255),
+                date VARCHAR(20) NOT NULL,
+                started_at VARCHAR(64) NOT NULL,
+                stopped_at VARCHAR(64) DEFAULT NULL,
+                duration_seconds INT DEFAULT 0,
+                INDEX idx_tts_user_date (user_id, date)
+            )
+        """)
 
         # Migration: Add location columns to attendance
         for col in ["clock_in_lat DOUBLE", "clock_in_lng DOUBLE", "clock_in_address TEXT", "clock_out_lat DOUBLE", "clock_out_lng DOUBLE", "clock_out_address TEXT", "location_type VARCHAR(20)"]:

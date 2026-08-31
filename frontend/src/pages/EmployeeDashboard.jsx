@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { Button } from "../components/ui/button";
@@ -16,7 +16,8 @@ import {
   Briefcase, House, ClockCounterClockwise, CalendarCheck,
   CaretDown, Hourglass, Warning, Timer, ChartBar, Receipt, DownloadSimple,
   CalendarStar, CurrencyCircleDollar, Scroll, Laptop, Trash, CurrencyDollar,
-  GitPullRequest, Plus, Sun, Moon, TreeStructure, MapPin, WifiNone
+  GitPullRequest, Plus, Sun, Moon, TreeStructure, MapPin, WifiNone,
+  PlayCircle, StopCircle, CheckCircle
 } from "@phosphor-icons/react";
 import { OrgTreeView } from "../components/OrgTreeNode";
 
@@ -86,6 +87,9 @@ export default function EmployeeDashboard() {
   const [breakElapsedTime, setBreakElapsedTime] = useState(0);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [gpsStatus, setGpsStatus] = useState(null); // null | { within: bool, distance_km, office_name, your_lat, your_lng, geofence_bypass, has_wfh_today }
+  const [timerStatus, setTimerStatus] = useState({ is_running: false, total_seconds: 0, live_seconds: 0, sessions: [], target_seconds: 28800 });
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  const timerIntervalRef = useRef(null);
 
   const [leaveForm, setLeaveForm] = useState({
     leave_type: "casual",
@@ -158,6 +162,25 @@ export default function EmployeeDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
+  // Fetch timer status when user is available
+  useEffect(() => {
+    if (user?.timer_access_enabled) {
+      fetchTimerStatus();
+    }
+  }, [user, fetchTimerStatus]);
+
+  // Live interval: tick every second when timer is running
+  useEffect(() => {
+    if (timerStatus.is_running) {
+      timerIntervalRef.current = setInterval(() => {
+        setLiveElapsed(prev => prev + 1);
+      }, 1000);
+    } else {
+      clearInterval(timerIntervalRef.current);
+    }
+    return () => clearInterval(timerIntervalRef.current);
+  }, [timerStatus.is_running]);
+
   // Timer for work duration
   useEffect(() => {
     let interval;
@@ -222,6 +245,39 @@ export default function EmployeeDashboard() {
       setGpsStatus({ within: res.data.within_geofence, distance_km: res.data.distance_km, office_name: res.data.office_name, your_lat: res.data.your_lat, your_lng: res.data.your_lng, geofence_bypass: res.data.geofence_bypass, has_wfh_today: res.data.has_wfh_today, radius_km: res.data.radius_km });
     } catch {
       setGpsStatus(null);
+    }
+  };
+
+  const fetchTimerStatus = useCallback(async () => {
+    try {
+      const res = await api.get("/attendance/timer/today");
+      const data = res.data;
+      setTimerStatus(data);
+      if (data.is_running) {
+        setLiveElapsed(data.live_seconds || 0);
+      }
+    } catch {
+      // Timer endpoint not available or access not granted - ignore silently
+    }
+  }, [api]);
+
+  const handleTimerStart = async () => {
+    try {
+      await api.post("/attendance/timer/start");
+      await fetchTimerStatus();
+      toast.success("Timer started");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to start timer");
+    }
+  };
+
+  const handleTimerStop = async () => {
+    try {
+      await api.post("/attendance/timer/stop");
+      await fetchTimerStatus();
+      toast.success("Timer stopped");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to stop timer");
     }
   };
 
@@ -827,6 +883,102 @@ export default function EmployeeDashboard() {
                   </div>
                 )}
               </div>
+
+              {/* ── Flexible Timer Card (only visible when admin grants access) ── */}
+              {user?.timer_access_enabled && (
+                <div data-testid="flexible-timer-card" className="lg:col-span-12 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-9 h-9 bg-violet-50 rounded-xl">
+                        <Timer className="h-5 w-5 text-violet-600" weight="duotone" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">Flexible Timer</h3>
+                        <p className="text-xs text-slate-400">Track your work hours flexibly — 8h target per day</p>
+                      </div>
+                    </div>
+                    {/* 8h progress */}
+                    <div className="hidden sm:flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-xs text-slate-400">Today's Progress</p>
+                        <p className="text-sm font-bold text-slate-700">
+                          {formatTime(timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0))} <span className="text-slate-400 font-normal">/ 8h 00m</span>
+                        </p>
+                      </div>
+                      <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, ((timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0)) / 28800) * 100)}%`,
+                            background: (timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0)) >= 28800 ? '#10b981' : '#7c3aed'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-6">
+                    {/* Live clock display */}
+                    <div className="flex flex-col items-center justify-center w-40 h-40 rounded-full border-4 border-violet-100 bg-violet-50 shrink-0">
+                      <span className="text-3xl font-mono font-extrabold text-violet-700 tracking-widest">
+                        {formatTime(timerStatus.is_running ? liveElapsed : 0)}
+                      </span>
+                      <span className="text-xs text-violet-400 mt-1">{timerStatus.is_running ? "Running" : "Stopped"}</span>
+                    </div>
+
+                    <div className="flex-1 space-y-4 w-full">
+                      {/* Start / Stop button */}
+                      <button
+                        data-testid="flexible-timer-btn"
+                        onClick={timerStatus.is_running ? handleTimerStop : handleTimerStart}
+                        className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-bold text-lg transition-all shadow-sm active:scale-95 ${timerStatus.is_running ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white'}`}
+                      >
+                        {timerStatus.is_running
+                          ? <><StopCircle className="h-6 w-6" weight="fill" /> Stop Timer</>
+                          : <><PlayCircle className="h-6 w-6" weight="fill" /> Start Timer</>
+                        }
+                      </button>
+
+                      {/* Daily total */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-slate-50 rounded-xl p-3 text-center">
+                          <p className="text-xs text-slate-400 mb-0.5">Total Today</p>
+                          <p className="font-bold text-slate-800 font-mono">
+                            {formatTime(timerStatus.total_seconds + (timerStatus.is_running ? liveElapsed : 0))}
+                          </p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-3 text-center">
+                          <p className="text-xs text-slate-400 mb-0.5">Sessions</p>
+                          <p className="font-bold text-slate-800">{timerStatus.sessions?.length || 0}</p>
+                        </div>
+                      </div>
+
+                      {/* Sessions list */}
+                      {timerStatus.sessions?.length > 0 && (
+                        <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                          {timerStatus.sessions.map((s, i) => (
+                            <div key={s.id || i} className="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-3 py-1.5">
+                              <div className="flex items-center gap-2 text-slate-500">
+                                {s.stopped_at
+                                  ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" weight="fill" />
+                                  : <Timer className="h-3.5 w-3.5 text-violet-500 animate-pulse" weight="duotone" />
+                                }
+                                <span>Session {i + 1}</span>
+                                <span className="text-slate-300">•</span>
+                                <span>{s.started_at ? new Date(s.started_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</span>
+                                {s.stopped_at && <><span className="text-slate-300">→</span><span>{new Date(s.stopped_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></>}
+                              </div>
+                              <span className="font-semibold text-slate-600 font-mono">
+                                {s.stopped_at ? formatTime(s.duration_seconds || 0) : <span className="text-violet-500">running</span>}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Leave & Permission Balance Cards */}
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">

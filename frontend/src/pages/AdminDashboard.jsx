@@ -13,7 +13,7 @@ import {
   UserPlus, Check, X, Trash, PencilSimple, Timer, Receipt, CurrencyDollar, DownloadSimple,
   ClockClockwise, FileXls, Key, CalendarStar, Camera, Scroll, Plus, PencilLine, TrashSimple, Laptop,
   GitPullRequest, MapPin, GearSix, NavigationArrow, Bell, Warning, Sun, Moon,
-  TreeStructure, ShieldCheck, WifiNone, WifiHigh
+  TreeStructure, ShieldCheck, WifiNone, WifiHigh, PlayCircle, StopCircle
 } from "@phosphor-icons/react";
 import { CRApproveDialog } from "../components/CRApproveDialog";
 import { OrgTreeNode, OrgTreeView } from "../components/OrgTreeNode";
@@ -335,6 +335,17 @@ export default function AdminDashboard() {
       setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, gps_tracking_enabled: newVal } : e));
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to update GPS tracking");
+    }
+  };
+
+  const handleToggleTimerAccess = async (emp) => {
+    const newVal = !emp.timer_access_enabled;
+    try {
+      await api.put(`/admin/employees/${emp.id}/timer-access`, { timer_access_enabled: newVal });
+      toast.success(`Flexible timer ${newVal ? "enabled" : "disabled"} for ${emp.name}`);
+      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, timer_access_enabled: newVal } : e));
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update timer access");
     }
   };
 
@@ -1427,6 +1438,17 @@ export default function AdminDashboard() {
                                 {emp.gps_tracking_enabled !== false
                                   ? <><WifiHigh className="h-3 w-3" weight="bold" /> GPS</>
                                   : <><WifiNone className="h-3 w-3" weight="bold" /> GPS</>
+                                }
+                              </button>
+                              <button
+                                data-testid={`timer-toggle-${emp.id}`}
+                                onClick={() => handleToggleTimerAccess(emp)}
+                                title={emp.timer_access_enabled ? "Flexible Timer ON — click to disable" : "Flexible Timer OFF — click to enable"}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border transition-all cursor-pointer select-none ${emp.timer_access_enabled ? 'bg-violet-50 text-violet-600 border-violet-300 hover:bg-violet-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                              >
+                                {emp.timer_access_enabled
+                                  ? <><PlayCircle className="h-3 w-3" weight="bold" /> Timer</>
+                                  : <><StopCircle className="h-3 w-3" weight="bold" /> Timer</>
                                 }
                               </button>
                             </>
