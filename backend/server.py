@@ -288,7 +288,9 @@ async def check_geofence(lat, lng, user_id):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     # Check if GPS tracking is disabled for this employee (admin override)
     user_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user_id,), fetch_one=True)
-    if user_row and int(user_row.get("gps_tracking_enabled", 1) or 1) == 0:
+    gps_val = user_row.get("gps_tracking_enabled") if user_row else None
+    gps_enabled = bool(int(gps_val)) if gps_val is not None else True
+    if not gps_enabled:
         return True, "Office"
     # Check if user has approved WFH for today
     wfh = await execute_query(
@@ -452,7 +454,7 @@ async def login(user_data: UserLogin, response: Response):
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/")
 
-    return {"id": str(user["id"]), "email": email, "name": user["name"], "role": user["role"], "department": user.get("department", "General"), "position": user.get("position", "Employee"), "avatar_url": user.get("avatar_url"), "employee_code": user.get("employee_code", "")}
+    return {"id": str(user["id"]), "email": email, "name": user["name"], "role": user["role"], "department": user.get("department", "General"), "position": user.get("position", "Employee"), "avatar_url": user.get("avatar_url"), "employee_code": user.get("employee_code", ""), "gps_tracking_enabled": bool(int(user["gps_tracking_enabled"]) if user.get("gps_tracking_enabled") is not None else 1)}
 
 @auth_router.post("/logout")
 async def logout(response: Response):
@@ -465,6 +467,7 @@ async def get_me(request: Request):
     user = await get_current_user(request)
     user.pop("password_hash", None)
     user.pop("basic_salary", None)
+    user["gps_tracking_enabled"] = bool(int(user["gps_tracking_enabled"]) if user.get("gps_tracking_enabled") is not None else 1)
     return user
 
 @auth_router.get("/password-reset-info")
@@ -503,7 +506,8 @@ async def clock_in(request: Request):
         if not is_wfh:
             # Check if GPS tracking is disabled for this employee
             user_gps_row = await execute_query("SELECT gps_tracking_enabled FROM users WHERE id = %s", (user["id"],), fetch_one=True)
-            gps_enabled = int(user_gps_row.get("gps_tracking_enabled", 1) or 1) if user_gps_row else 1
+            gps_val = user_gps_row.get("gps_tracking_enabled") if user_gps_row else None
+            gps_enabled = bool(int(gps_val)) if gps_val is not None else True
             if gps_enabled:
                 raise HTTPException(status_code=400, detail="Location is required. Please enable GPS/location services.")
         # WFH or GPS-disabled employee — clock in without GPS
