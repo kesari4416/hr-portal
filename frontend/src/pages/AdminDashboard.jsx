@@ -138,9 +138,9 @@ export default function AdminDashboard() {
   const [crActionNotes, setCrActionNotes] = useState("");
   const [attendanceView, setAttendanceView] = useState("table");
   const [locationData, setLocationData] = useState([]);
-  const [officeSettings, setOfficeSettings] = useState({ latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, office_name: "Office" });
+  const [officeSettings, setOfficeSettings] = useState({ latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, office_name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001" });
   const [officeDialogOpen, setOfficeDialogOpen] = useState(false);
-  const [officeForm, setOfficeForm] = useState({ latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, office_name: "Office" });
+  const [officeForm, setOfficeForm] = useState({ latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, office_name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001" });
   const [locationDate, setLocationDate] = useState(new Date().toISOString().split("T")[0]);
   const [notifications, setNotifications] = useState({ total: 0, items: [] });
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
@@ -183,7 +183,7 @@ export default function AdminDashboard() {
         api.get("/admin/wfh-requests"),
         api.get("/admin/payroll/summary"),
         api.get("/admin/change-requests"),
-        api.get("/admin/office-settings").catch(() => ({ data: { latitude: 10.0159, longitude: 76.3419, radius_km: 0.5, name: "Office" } })),
+        api.get("/admin/office-settings").catch(() => ({ data: { latitude: 8.1815, longitude: 77.4294, radius_km: 0.5, name: "Main Headquarters (Nagercoil)", address: "64/3, Thompson St, Palace Rd, Nagercoil, Tamil Nadu 629001" } })),
         api.get(`/admin/attendance/locations?date=${new Date().toISOString().split("T")[0]}`).catch(() => ({ data: [] }))
       ];
       // Only admins can access payslips
@@ -203,7 +203,7 @@ export default function AdminDashboard() {
       setChangeRequests(results[9].data);
       const oSettings = results[10].data;
       setOfficeSettings(oSettings);
-      setOfficeForm({ latitude: oSettings.latitude, longitude: oSettings.longitude, radius_km: oSettings.radius_km, office_name: oSettings.name || "Office" });
+      setOfficeForm({ latitude: oSettings.latitude, longitude: oSettings.longitude, radius_km: oSettings.radius_km, office_name: oSettings.name || "Main Headquarters (Nagercoil)", address: oSettings.address || "" });
       setLocationData(results[11].data);
       if (user?.role === "admin" && results[12]) {
         setPayslips(results[12].data);
@@ -2469,6 +2469,10 @@ export default function AdminDashboard() {
                           <Label>Office Name</Label>
                           <Input data-testid="office-name-input" value={officeForm.office_name} onChange={(e) => setOfficeForm({ ...officeForm, office_name: e.target.value })} />
                         </div>
+                        <div className="space-y-2">
+                          <Label>Address</Label>
+                          <Input data-testid="office-address-input" placeholder="Full address" value={officeForm.address || ""} onChange={(e) => setOfficeForm({ ...officeForm, address: e.target.value })} />
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Latitude</Label>
@@ -2482,7 +2486,7 @@ export default function AdminDashboard() {
                         <div className="space-y-2">
                           <Label>Allowed Radius (km)</Label>
                           <Input data-testid="office-radius-input" type="number" step="0.1" value={officeForm.radius_km} onChange={(e) => setOfficeForm({ ...officeForm, radius_km: parseFloat(e.target.value) })} />
-                          <p className="text-xs text-slate-400">{(officeForm.radius_km * 1000).toFixed(0)} meters</p>
+                          <p className="text-xs text-slate-400">{(officeForm.radius_km * 1000).toFixed(0)} meters — employees must be within this range to clock in</p>
                         </div>
                         <Button data-testid="save-office-btn" onClick={handleSaveOfficeSettings} className="w-full bg-[#002FA7] text-white hover:bg-[#002482] rounded-xl">
                           Save Office Location
@@ -2657,6 +2661,7 @@ export default function AdminDashboard() {
                 </div>
                 <div style={{ height: "500px", width: "100%" }} data-testid="attendance-map">
                   <MapContainer
+                    key={`${officeSettings.latitude}-${officeSettings.longitude}`}
                     center={[officeSettings.latitude, officeSettings.longitude]}
                     zoom={14}
                     style={{ height: "100%", width: "100%" }}
@@ -2674,7 +2679,8 @@ export default function AdminDashboard() {
                     />
                     <Marker position={[officeSettings.latitude, officeSettings.longitude]}>
                       <Popup>
-                        <strong>{officeSettings.name || "Office"}</strong><br />
+                        <strong>{officeSettings.name || officeSettings.office_name || "Office"}</strong><br />
+                        {officeSettings.address && <span className="text-xs text-slate-500">{officeSettings.address}<br /></span>}
                         <span className="text-xs">Geofence: {(officeSettings.radius_km * 1000).toFixed(0)}m radius</span>
                       </Popup>
                     </Marker>
