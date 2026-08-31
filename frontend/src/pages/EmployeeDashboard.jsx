@@ -162,13 +162,6 @@ export default function EmployeeDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
 
-  // Fetch timer status when user is available
-  useEffect(() => {
-    if (user?.timer_access_enabled) {
-      fetchTimerStatus();
-    }
-  }, [user, fetchTimerStatus]);
-
   // Live interval: tick every second when timer is running
   useEffect(() => {
     if (timerStatus.is_running) {
