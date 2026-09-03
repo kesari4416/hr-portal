@@ -107,6 +107,12 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - ✅ **GPS Bypass for GPS-disabled employees**: Fixed `clock-out`, `break/start`, `break/end` backend endpoints
 - ✅ **Frontend GPS fix**: `checkGPSStatus()` auto-call on load now skipped when GPS is disabled for the employee; break handlers (start/end) also respect GPS disable toggle
 - ✅ **Unified Timer Card**: Flexible Timer merged inside the Time Tracker card as a single container — controlled by `timer_access_enabled` admin toggle. Old standalone `lg:col-span-12` flexible timer card removed.
+- ✅ **CR Approver Toggle**: Admin can toggle `is_cr_approver` for any employee via the `...` dropdown in Employee table. Only CR approvers appear in the CR submission Manager dropdown.
+- ✅ **Sabarish & Merbin accounts**: Created as managers with `is_cr_approver = true`.
+- ✅ **Configurable Salary Components**: `salary_components` table with default 5 components (Basic 50%, HRA 20%, Medical 4.5%, Conveyance 6%, Special Allowance remainder). Admin can edit via Payroll > Salary Structure tab.
+- ✅ **Payslip Filters**: Employee, Month, Year filter dropdowns in Payroll > Payslips tab.
+- ✅ **Email Payslip**: "Email" button on each payslip row sends PDF attachment to employee via Gmail SMTP.
+- ✅ **Payslip PDF uses DB components**: PDF earnings breakdown now reads from `salary_components` table instead of hardcoded values.
 
 ## Pending Items (Prioritized)
 
@@ -121,8 +127,9 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 - Attendance: `POST /api/attendance/clock-in`, `POST /api/attendance/clock-out`, `POST /api/attendance/break`, `POST /api/attendance/check-location`
 - Leaves: `GET/POST /api/leaves`, `PUT /api/admin/leaves/{id}`
 - Leave Balance: `GET/PUT /api/admin/employees/{id}/leave-balance`
-- Payroll: `GET /api/admin/payroll/summary`, `POST /api/admin/payroll/generate`
-- Change Requests: `GET/POST /api/change-requests`, `PUT /api/admin/change-requests/{id}/manager-action`, `PUT /api/admin/change-requests/{id}/admin-action`
+- Payroll: `GET /api/admin/payroll/summary`, `POST /api/admin/payroll/process`, `POST /api/admin/payslip/generate`, `GET/PUT /api/admin/salary-components`, `POST /api/admin/payslips/{id}/email`
+- Change Requests: `GET/POST /api/cr`, `POST /api/cr/create`, `GET /api/cr/managers`, `PUT /api/admin/cr/{id}/manager-action`, `PUT /api/admin/cr/{id}/admin-action`
+- CR Approver: `PUT /api/admin/employees/{id}/cr-approver`
 - Org Chart: `GET/POST/PUT/DELETE /api/admin/org-chart`
 - Role Perms: `GET/PUT /api/admin/role-permissions`, `GET /api/my-permissions`
 - Office: `GET/PUT /api/admin/office-settings` (supports `geofence_bypass` field)

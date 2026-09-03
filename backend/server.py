@@ -84,6 +84,36 @@ def _send_email(to_addresses: list[str], subject: str, html_body: str) -> None:
         except Exception as e:
             logging.getLogger("hr_portal").warning(f"Email send failed to {to}: {e}")
 
+def _send_email_with_pdf(to_address: str, subject: str, html_body: str, pdf_buffer: io.BytesIO, filename: str) -> None:
+    """Send HTML email with PDF attachment via Gmail SMTP."""
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        logging.getLogger("hr_portal").warning("Gmail credentials not set — skipping payslip email.")
+        return
+    try:
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.application import MIMEApplication
+        msg = MIMEMultipart("mixed")
+        msg["Subject"] = subject
+        msg["From"] = f"Sparkcurv HR <{GMAIL_USER}>"
+        msg["To"] = to_address
+        alt_part = MIMEMultipart("alternative")
+        alt_part.attach(MIMEText("Please view this email in an HTML-capable client.", "plain"))
+        alt_part.attach(MIMEText(html_body, "html"))
+        msg.attach(alt_part)
+        pdf_buffer.seek(0)
+        pdf_data = pdf_buffer.read()
+        pdf_attach = MIMEApplication(pdf_data, _subtype="pdf")
+        pdf_attach.add_header("Content-Disposition", "attachment", filename=filename)
+        msg.attach(pdf_attach)
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx, timeout=20) as smtp:
+            smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            smtp.sendmail(GMAIL_USER, to_address, msg.as_string())
+        logging.getLogger("hr_portal").info(f"Payslip emailed to {to_address}")
+    except Exception as e:
+        logging.getLogger("hr_portal").warning(f"Payslip email failed to {to_address}: {e}")
+
 def _cr_email_html(cr: dict, review_token: str, reviewer_type: str) -> str:
     """Build the CR notification HTML email with Approve / Reject buttons."""
     backend_url = BACKEND_URL.rstrip("/")
@@ -1209,7 +1239,7 @@ async def cancel_leave_request(leave_id: str, request: Request):
 @admin_router.get("/employees")
 async def get_all_employees(request: Request):
     await require_admin_or_manager(request)
-    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled, timer_access_enabled, reporting_manager_id FROM users ORDER BY created_at DESC", fetch_all=True)
+    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled, timer_access_enabled, reporting_manager_id, is_cr_approver FROM users ORDER BY created_at DESC", fetch_all=True)
     result = []
     for emp in (rows or []):
         e = dict(emp)
@@ -1333,6 +1363,20 @@ async def toggle_timer_access(employee_id: str, request: Request):
     if result == 0:
         raise HTTPException(status_code=404, detail="Employee not found")
     return {"message": f"Timer access {'enabled' if enabled else 'disabled'}", "timer_access_enabled": enabled}
+
+@admin_router.put("/employees/{employee_id}/cr-approver")
+async def toggle_cr_approver(employee_id: str, request: Request):
+    """Admin can flag any user as a CR approver — they appear in the CR manager dropdown."""
+    await require_admin(request)
+    body = await request.json()
+    enabled = bool(body.get("is_cr_approver", False))
+    result = await execute_query(
+        "UPDATE users SET is_cr_approver = %s WHERE id = %s",
+        (int(enabled), int(employee_id))
+    )
+    if result == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": f"CR approver {'enabled' if enabled else 'disabled'}", "is_cr_approver": enabled}
 
 @admin_router.post("/employees/{employee_id}/reset-password")
 async def reset_employee_password(employee_id: str, data: PasswordReset, request: Request):
@@ -1810,6 +1854,42 @@ async def review_permission(permission_id: str, request: Request, action: str):
     )
     return {"message": f"Permission request {new_status}"}
 
+# ============== SALARY COMPONENTS HELPERS ==============
+
+DEFAULT_SALARY_COMPONENTS = [
+    {"name": "Basic", "percentage": 50.0, "is_remainder": 0, "sort_order": 1},
+    {"name": "House Rent Allowance", "percentage": 20.0, "is_remainder": 0, "sort_order": 2},
+    {"name": "Medical Allowance", "percentage": 4.5, "is_remainder": 0, "sort_order": 3},
+    {"name": "Conveyance Allowance", "percentage": 6.0, "is_remainder": 0, "sort_order": 4},
+    {"name": "Special Allowance", "percentage": 0.0, "is_remainder": 1, "sort_order": 5},
+]
+
+async def _get_salary_components() -> list:
+    """Fetch salary components from DB, returning defaults if table empty."""
+    rows = await execute_query("SELECT * FROM salary_components ORDER BY sort_order", fetch_all=True)
+    if rows:
+        return [dict(r) for r in rows]
+    return DEFAULT_SALARY_COMPONENTS
+
+def _compute_earnings(basic_salary: float, components: list) -> list:
+    """Compute earnings breakdown from salary components config."""
+    if not basic_salary:
+        return []
+    result = []
+    fixed_total = 0.0
+    remainder_component = None
+    for comp in components:
+        if comp.get("is_remainder"):
+            remainder_component = comp
+        else:
+            amount = round(basic_salary * comp["percentage"] / 100, 2)
+            result.append({"name": comp["name"], "amount": amount})
+            fixed_total += amount
+    if remainder_component:
+        remainder_amount = round(basic_salary - fixed_total, 2)
+        result.append({"name": remainder_component["name"], "amount": max(remainder_amount, 0)})
+    return result
+
 # ============== PAYSLIP ROUTES ==============
 
 @payslip_router.get("/my-payslips")
@@ -1841,6 +1921,8 @@ async def download_payslip(payslip_id: str, request: Request):
     # Fetch employee_code for the payslip
     emp = await execute_query("SELECT employee_code FROM users WHERE id = %s", (ps["employee_id"],), fetch_one=True)
     ps["employee_code"] = emp["employee_code"] if emp else ""
+    # Attach earnings breakdown from salary_components
+    ps["earnings_breakdown"] = _compute_earnings(ps.get("basic_salary", 0) or 0, await _get_salary_components())
     pdf_buffer = generate_payslip_pdf(ps)
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=payslip_{ps['month']}_{ps['year']}.pdf"})
 
@@ -1959,12 +2041,21 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
     elements.append(Spacer(1, 12))
 
     # ============ EARNINGS & DEDUCTIONS SIDE BY SIDE ============
-    # Salary breakdown
-    basic = round(basic_salary * 0.50, 2)
-    hra = round(basic_salary * 0.20, 2)
-    medical = round(basic_salary * 0.045, 2)
-    conveyance = round(basic_salary * 0.06, 2)
-    special = round(basic_salary - basic - hra - medical - conveyance, 2)
+    # Use pre-computed earnings if provided (from salary_components table), else fall back to hardcoded
+    earnings_list = payslip.get("earnings_breakdown") or []
+    if not earnings_list:
+        basic = round(basic_salary * 0.50, 2)
+        hra = round(basic_salary * 0.20, 2)
+        medical = round(basic_salary * 0.045, 2)
+        conveyance = round(basic_salary * 0.06, 2)
+        special = round(basic_salary - basic - hra - medical - conveyance, 2)
+        earnings_list = [
+            {"name": "Basic", "amount": basic},
+            {"name": "House Rent Allowance", "amount": hra},
+            {"name": "Medical Allowance", "amount": medical},
+            {"name": "Conveyance Allowance", "amount": conveyance},
+            {"name": "Special Allowance", "amount": special},
+        ]
     gross = basic_salary
 
     h_style = ParagraphStyle('HS', fontSize=8, fontName='Helvetica-Bold', textColor=dark_text)
@@ -1977,15 +2068,10 @@ def generate_payslip_pdf(payslip: dict) -> io.BytesIO:
     half_w = page_width / 2 - 6
 
     # Earnings table
-    earn_rows = [
-        [Paragraph("EARNINGS", h_style), Paragraph("AMOUNT", h_r_style)],
-        [Paragraph("Basic", r_style), Paragraph(f"{basic:,.2f}", r_r_style)],
-        [Paragraph("House Rent Allowance", r_style), Paragraph(f"{hra:,.2f}", r_r_style)],
-        [Paragraph("Medical Allowance", r_style), Paragraph(f"{medical:,.2f}", r_r_style)],
-        [Paragraph("Conveyance Allowance", r_style), Paragraph(f"{conveyance:,.2f}", r_r_style)],
-        [Paragraph("Special Allowance", r_style), Paragraph(f"{special:,.2f}", r_r_style)],
-        [Paragraph("Gross Earnings", t_style), Paragraph(f"{gross:,.2f}", t_r_style)],
-    ]
+    earn_rows = [[Paragraph("EARNINGS", h_style), Paragraph("AMOUNT", h_r_style)]]
+    for e in earnings_list:
+        earn_rows.append([Paragraph(e["name"], r_style), Paragraph(f"{e['amount']:,.2f}", r_r_style)])
+    earn_rows.append([Paragraph("Gross Earnings", t_style), Paragraph(f"{gross:,.2f}", t_r_style)])
 
     e_table = Table(earn_rows, colWidths=[half_w * 0.65, half_w * 0.35])
     e_table.setStyle(TableStyle([
@@ -2221,6 +2307,69 @@ async def delete_payslip(payslip_id: str, request: Request):
     if result == 0:
         raise HTTPException(status_code=404, detail="Payslip not found")
     return {"message": "Payslip deleted"}
+
+@admin_router.post("/payslips/{payslip_id}/email")
+async def email_payslip(payslip_id: str, request: Request):
+    """Email the payslip PDF to the employee."""
+    await require_admin(request)
+    ps_row = await execute_query("SELECT * FROM payslips WHERE id = %s", (int(payslip_id),), fetch_one=True)
+    if not ps_row:
+        raise HTTPException(status_code=404, detail="Payslip not found")
+    ps = dict(ps_row)
+    if isinstance(ps.get("deduction_details"), str):
+        ps["deduction_details"] = json.loads(ps["deduction_details"])
+    emp = await execute_query("SELECT employee_code, email FROM users WHERE id = %s", (ps["employee_id"],), fetch_one=True)
+    ps["employee_code"] = emp["employee_code"] if emp else ""
+    recipient_email = ps.get("employee_email") or (emp["email"] if emp else None)
+    if not recipient_email:
+        raise HTTPException(status_code=400, detail="Employee email not found")
+    ps["earnings_breakdown"] = _compute_earnings(ps.get("basic_salary", 0) or 0, await _get_salary_components())
+    pdf_buffer = generate_payslip_pdf(ps)
+    subject = f"Payslip for {ps['month_name']} {ps['year']} — Sparkcurv HR"
+    html_body = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f4f6f9;margin:0;padding:32px">
+<table width="580" style="background:#fff;border-radius:12px;padding:32px;margin:auto;box-shadow:0 2px 8px rgba(0,0,0,0.1)">
+<tr><td style="background:#002FA7;padding:24px 32px;border-radius:8px 8px 0 0">
+  <h2 style="color:#fff;margin:0">Sparkcurv HR Portal</h2>
+  <p style="color:#93c5fd;margin:4px 0 0;font-size:14px">Payslip — {ps['month_name']} {ps['year']}</p>
+</td></tr>
+<tr><td style="padding:28px 32px">
+  <p style="color:#374151">Dear <strong>{ps['employee_name']}</strong>,</p>
+  <p style="color:#374151">Please find attached your payslip for <strong>{ps['month_name']} {ps['year']}</strong>.</p>
+  <table style="width:100%;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:20px 0">
+    <tr style="background:#f9fafb"><td style="padding:10px 16px;color:#6b7280;font-size:13px">Gross Salary</td><td style="padding:10px 16px;font-weight:600">₹{(ps.get('basic_salary') or 0):,.2f}</td></tr>
+    <tr><td style="padding:10px 16px;color:#6b7280;font-size:13px">Total Deductions</td><td style="padding:10px 16px;color:#dc2626;font-weight:600">-₹{(ps.get('total_deductions') or 0):,.2f}</td></tr>
+    <tr style="background:#f0fdf4"><td style="padding:10px 16px;color:#15803d;font-weight:600;font-size:14px">Net Pay</td><td style="padding:10px 16px;color:#15803d;font-weight:700;font-size:16px">₹{(ps.get('net_pay') or 0):,.2f}</td></tr>
+  </table>
+  <p style="color:#6b7280;font-size:13px">The full payslip PDF is attached to this email.</p>
+  <p style="color:#9ca3af;font-size:12px;margin-top:24px">This is an automated message from Sparkcurv HR Portal. Please do not reply.</p>
+</td></tr></table></body></html>"""
+    import asyncio
+    await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _send_email_with_pdf(recipient_email, subject, html_body, pdf_buffer, f"Payslip_{ps['month_name']}_{ps['year']}.pdf")
+    )
+    return {"message": f"Payslip emailed to {recipient_email}"}
+
+@admin_router.get("/salary-components")
+async def get_salary_components(request: Request):
+    await require_admin(request)
+    components = await _get_salary_components()
+    return [{"id": str(c.get("id", i+1)), "name": c["name"], "percentage": c["percentage"], "is_remainder": bool(c.get("is_remainder", 0)), "sort_order": c.get("sort_order", i+1)} for i, c in enumerate(components)]
+
+@admin_router.put("/salary-components")
+async def update_salary_components(request: Request):
+    await require_admin(request)
+    body = await request.json()
+    components = body.get("components", [])
+    if not components:
+        raise HTTPException(status_code=400, detail="No components provided")
+    # Delete all existing and re-insert
+    await execute_query("DELETE FROM salary_components")
+    for i, comp in enumerate(components):
+        await execute_query(
+            "INSERT INTO salary_components (name, percentage, is_remainder, sort_order) VALUES (%s, %s, %s, %s)",
+            (comp["name"], float(comp.get("percentage", 0)), 1 if comp.get("is_remainder") else 0, i + 1)
+        )
+    return {"message": "Salary components updated"}
 
 # ============== SHIFT ROUTES ==============
 
@@ -2710,11 +2859,17 @@ async def payroll_summary(request: Request, year: Optional[int] = None):
 async def get_my_salary_structure(request: Request):
     user = await get_current_user(request)
     basic_salary = user.get("basic_salary", 0) or 0
-    basic = round(basic_salary * 0.50, 2)
-    hra = round(basic_salary * 0.20, 2)
-    medical = round(basic_salary * 0.045, 2)
-    conveyance = round(basic_salary * 0.06, 2)
-    special = round(basic_salary - basic - hra - medical - conveyance, 2)
+    components = await _get_salary_components()
+    earnings = _compute_earnings(basic_salary, components)
+    earnings_out = []
+    for e in earnings:
+        # Find matching component percentage for display
+        comp_match = next((c for c in components if c["name"] == e["name"]), None)
+        pct = comp_match["percentage"] if comp_match and not comp_match.get("is_remainder") else None
+        entry = {"name": e["name"], "amount": e["amount"]}
+        if pct:
+            entry["percentage"] = pct
+        earnings_out.append(entry)
 
     # Get custom deductions
     custom_deds = await execute_query(
@@ -2733,13 +2888,7 @@ async def get_my_salary_structure(request: Request):
 
     return {
         "gross_salary": basic_salary,
-        "earnings": [
-            {"name": "Basic", "amount": basic, "percentage": 50},
-            {"name": "House Rent Allowance", "amount": hra, "percentage": 20},
-            {"name": "Medical Allowance", "amount": medical, "percentage": 4.5},
-            {"name": "Conveyance Allowance", "amount": conveyance, "percentage": 6},
-            {"name": "Special Allowance", "amount": special, "percentage": 19.5},
-        ],
+        "earnings": earnings_out,
         "deductions": deductions,
         "total_deductions": round(total_deductions, 2),
         "net_salary": round(basic_salary - total_deductions, 2)
@@ -2751,10 +2900,10 @@ CR_TYPES = ["Installation", "Maintenance", "Software", "Hardware", "Access", "Po
 
 @cr_router.get("/managers")
 async def get_cr_managers(request: Request):
-    """Return list of managers/admins the employee can assign their CR to."""
+    """Return only users flagged as CR approvers by admin."""
     await get_current_user(request)
     rows = await execute_query(
-        "SELECT id, name, email, role, department FROM users WHERE role IN ('manager', 'devops_manager', 'admin') ORDER BY name",
+        "SELECT id, name, email, role, department FROM users WHERE is_cr_approver = 1 ORDER BY name",
         fetch_all=True
     )
     return [{"id": str(r["id"]), "name": r["name"], "email": r["email"], "role": r["role"], "department": r.get("department") or ""} for r in (rows or [])]
@@ -2766,8 +2915,8 @@ async def create_cr(data: CRCreate, request: Request):
     metadata_json = json.dumps(data.metadata) if data.metadata else None
 
     # Look up assigned manager
-    mgr = await execute_query("SELECT id, name, email, role FROM users WHERE id = %s", (data.assigned_manager_id,), fetch_one=True)
-    if not mgr or mgr["role"] not in ("manager", "devops_manager", "admin"):
+    mgr = await execute_query("SELECT id, name, email, role FROM users WHERE id = %s AND is_cr_approver = 1", (data.assigned_manager_id,), fetch_one=True)
+    if not mgr:
         raise HTTPException(status_code=400, detail="Invalid reporting manager selected")
 
     # Generate unique CR number: CR-YYYY-NNNN
@@ -3773,6 +3922,38 @@ async def startup():
                     logger.info(f"Added {col_name} to change_requests")
                 except Exception as e:
                     logger.warning(f"Could not add {col_name} to change_requests: {e}")
+
+        # Migration: Add is_cr_approver to users
+        try:
+            await execute_query("SELECT is_cr_approver FROM users LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE users ADD COLUMN is_cr_approver TINYINT(1) DEFAULT 0")
+                logger.info("Added is_cr_approver to users")
+            except Exception as e:
+                logger.warning(f"Could not add is_cr_approver: {e}")
+
+        # Migration: Create salary_components table and seed defaults
+        try:
+            await execute_query("""
+                CREATE TABLE IF NOT EXISTS salary_components (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    percentage FLOAT DEFAULT 0,
+                    is_remainder TINYINT(1) DEFAULT 0,
+                    sort_order INT DEFAULT 0
+                )
+            """)
+            count = await execute_query("SELECT COUNT(*) as cnt FROM salary_components", fetch_one=True)
+            if not count or count.get("cnt", 0) == 0:
+                for comp in DEFAULT_SALARY_COMPONENTS:
+                    await execute_query(
+                        "INSERT INTO salary_components (name, percentage, is_remainder, sort_order) VALUES (%s, %s, %s, %s)",
+                        (comp["name"], comp["percentage"], comp["is_remainder"], comp["sort_order"])
+                    )
+                logger.info("Seeded default salary components")
+        except Exception as e:
+            logger.warning(f"salary_components migration: {e}")
 
         # Migration: Add level_num to org_chart
         try:

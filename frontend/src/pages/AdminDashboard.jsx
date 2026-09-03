@@ -173,6 +173,16 @@ export default function AdminDashboard() {
   const [selectedCR, setSelectedCR] = useState(null);
   const [crApplyData, setCrApplyData] = useState({ notes: "", apply_value: "" });
 
+  // Salary components (configurable)
+  const [salaryComponents, setSalaryComponents] = useState([]);
+  const [editingComponents, setEditingComponents] = useState(false);
+  const [componentsForm, setComponentsForm] = useState([]);
+
+  // Payslip filters
+  const [payslipFilterEmp, setPayslipFilterEmp] = useState("");
+  const [payslipFilterMonth, setPayslipFilterMonth] = useState(0);
+  const [payslipFilterYear, setPayslipFilterYear] = useState(0);
+
   const fetchData = useCallback(async () => {
     try {
       const promises = [
@@ -214,6 +224,7 @@ export default function AdminDashboard() {
         api.get("/admin/org-chart").then(r => setOrgNodes(r.data)).catch(() => {});
         api.get("/org-levels").then(r => setOrgLevels(r.data || [])).catch(() => {});
         api.get("/admin/role-permissions").then(r => setRolePerms(r.data || { manager: {}, employee: {} })).catch(() => {});
+        api.get("/admin/salary-components").then(r => { setSalaryComponents(r.data || []); setComponentsForm(r.data || []); }).catch(() => {});
       }
       // Fetch managers list for reporting manager dropdown
       const mgrs = (results[1].data || []).filter(e => ["manager", "devops_manager", "admin"].includes(e.role));
@@ -354,6 +365,17 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleToggleCRApprover = async (emp) => {
+    const newVal = !emp.is_cr_approver;
+    try {
+      await api.put(`/admin/employees/${emp.id}/cr-approver`, { is_cr_approver: newVal });
+      toast.success(`${emp.name} ${newVal ? "added to" : "removed from"} CR approvers`);
+      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, is_cr_approver: newVal } : e));
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update CR approver");
+    }
+  };
+
   const handleResetPassword = async () => {
     if (!selectedEmployee || !resetPasswordValue) {
       toast.error("Please enter a new password");
@@ -474,6 +496,26 @@ export default function AdminDashboard() {
       toast.error(error.response?.data?.detail || "Failed to process payroll");
     } finally {
       setBulkProcessing(false);
+    }
+  };
+
+  const handleSaveSalaryComponents = async () => {
+    try {
+      await api.put("/admin/salary-components", { components: componentsForm });
+      setSalaryComponents(componentsForm);
+      setEditingComponents(false);
+      toast.success("Salary structure updated");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to save");
+    }
+  };
+
+  const handleEmailPayslip = async (psId, empName) => {
+    try {
+      await api.post(`/admin/payslips/${psId}/email`);
+      toast.success(`Payslip emailed to ${empName}`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to send email");
     }
   };
 
@@ -1428,6 +1470,14 @@ export default function AdminDashboard() {
                                     <Key className="h-4 w-4 text-slate-500" />
                                     Reset Password
                                   </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => handleToggleCRApprover(emp)}
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <ShieldCheck className={`h-4 w-4 ${emp.is_cr_approver ? 'text-amber-500' : 'text-slate-400'}`} weight={emp.is_cr_approver ? "fill" : "regular"} />
+                                    {emp.is_cr_approver ? "Remove from CR Approvers" : "Add as CR Approver"}
+                                  </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
 
@@ -1759,6 +1809,7 @@ export default function AdminDashboard() {
             <div className="flex gap-1 mb-6 bg-slate-100 p-1 rounded-xl w-fit" data-testid="payroll-subtabs">
               {[
                 { id: "dashboard", label: "Dashboard" },
+                { id: "salary-structure", label: "Salary Structure" },
                 { id: "deductions", label: "Deductions" },
                 { id: "process", label: "Process Payroll" },
                 { id: "payslips", label: "Payslips" }
@@ -1907,6 +1958,69 @@ export default function AdminDashboard() {
                   </div>
                 )}
               </>
+            )}
+
+            {/* Sub-tab: Salary Structure */}
+            {payrollSubTab === "salary-structure" && (
+              <div className="max-w-2xl">
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-900 font-['Outfit']">Salary Component Structure</h2>
+                      <p className="text-xs text-slate-500 mt-1">Configure how gross salary is split into components (Basic, HRA, etc.)</p>
+                    </div>
+                    {!editingComponents ? (
+                      <Button size="sm" variant="outline" onClick={() => { setComponentsForm(salaryComponents.map(c => ({ ...c }))); setEditingComponents(true); }}
+                        className="gap-1 border-[#002FA7] text-[#002FA7] hover:bg-[#002FA7] hover:text-white">
+                        <PencilSimple className="h-3.5 w-3.5" /> Edit
+                      </Button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setEditingComponents(false)}>Cancel</Button>
+                        <Button size="sm" onClick={handleSaveSalaryComponents} className="bg-[#002FA7] text-white hover:bg-[#001F70]">Save</Button>
+                      </div>
+                    )}
+                  </div>
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className="table-header">Component</th>
+                        <th className="table-header">Percentage (%)</th>
+                        <th className="table-header">Type</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(editingComponents ? componentsForm : salaryComponents).map((comp, idx) => (
+                        <tr key={idx} className="table-row">
+                          <td className="table-cell font-medium">{comp.name}</td>
+                          <td className="table-cell">
+                            {editingComponents && !comp.is_remainder ? (
+                              <Input type="number" value={comp.percentage} min="0" max="100" step="0.5"
+                                className="w-24 h-7 text-sm"
+                                onChange={e => { const v = parseFloat(e.target.value) || 0; setComponentsForm(prev => prev.map((c, i) => i === idx ? { ...c, percentage: v } : c)); }} />
+                            ) : (
+                              <span className={comp.is_remainder ? "text-slate-400 italic" : ""}>
+                                {comp.is_remainder ? "Remainder" : `${comp.percentage}%`}
+                              </span>
+                            )}
+                          </td>
+                          <td className="table-cell">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${comp.is_remainder ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
+                              {comp.is_remainder ? "Remainder" : "Fixed %"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="px-5 py-3 bg-slate-50 border-t border-slate-100">
+                    <p className="text-xs text-slate-500">
+                      Total fixed: {(editingComponents ? componentsForm : salaryComponents).filter(c => !c.is_remainder).reduce((s, c) => s + (c.percentage || 0), 0).toFixed(1)}% — 
+                      Remainder component fills the rest of gross salary.
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Sub-tab: Deductions */}
@@ -2119,78 +2233,107 @@ export default function AdminDashboard() {
             {/* Sub-tab: Payslips */}
             {payrollSubTab === "payslips" && (
               <>
-                <div className="mb-5 flex items-center justify-between">
-                  <p className="text-sm text-gray-500">Generate individual payslips or view all generated payslips</p>
-                  <Dialog open={generatePayslipOpen} onOpenChange={setGeneratePayslipOpen}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="generate-payslip-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
-                        <Receipt className="h-4 w-4" weight="bold" />
-                        Generate Payslip
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle className="font-['Outfit']">Generate Payslip</DialogTitle>
-                      </DialogHeader>
-                      <p className="text-sm text-gray-500 -mt-2">Select employee and pay period to generate payslip.</p>
-                      <div className="space-y-4 pt-4">
-                        <div className="space-y-2">
-                          <Label>Employee</Label>
-                          <Select
-                            value={payslipForm.employee_id}
-                            onValueChange={(value) => setPayslipForm({ ...payslipForm, employee_id: value })}
-                          >
-                            <SelectTrigger data-testid="payslip-employee-select">
-                              <SelectValue placeholder="Select employee" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {employees.filter(e => e.role !== "admin" && e.basic_salary > 0).map((emp) => (
-                                <SelectItem key={emp.id} value={emp.id}>
-                                  {emp.name} - ₹{emp.basic_salary?.toLocaleString()}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-gray-500">Only employees with salary set are shown</p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  {/* Filters */}
+                  <Select value={payslipFilterEmp || "all"} onValueChange={v => setPayslipFilterEmp(v === "all" ? "" : v)}>
+                    <SelectTrigger className="w-44 h-8 text-sm" data-testid="payslip-filter-emp">
+                      <SelectValue placeholder="All Employees" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Employees</SelectItem>
+                      {[...new Map(payslips.map(p => [p.employee_id, p])).values()].map(p => (
+                        <SelectItem key={p.employee_id} value={p.employee_id}>{p.employee_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={(payslipFilterMonth || "all").toString()} onValueChange={v => setPayslipFilterMonth(v === "all" ? 0 : parseInt(v))}>
+                    <SelectTrigger className="w-36 h-8 text-sm" data-testid="payslip-filter-month">
+                      <SelectValue placeholder="All Months" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Months</SelectItem>
+                      {months.map(m => <SelectItem key={m.value} value={m.value.toString()}>{m.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" placeholder="Year" value={payslipFilterYear || ""} onChange={e => setPayslipFilterYear(parseInt(e.target.value) || 0)}
+                    className="w-24 h-8 text-sm" data-testid="payslip-filter-year" />
+                  {(payslipFilterEmp || payslipFilterMonth || payslipFilterYear) && (
+                    <Button size="sm" variant="ghost" className="h-8 text-slate-500" onClick={() => { setPayslipFilterEmp(""); setPayslipFilterMonth(0); setPayslipFilterYear(0); }}>
+                      Clear
+                    </Button>
+                  )}
+                  <div className="ml-auto">
+                    <Dialog open={generatePayslipOpen} onOpenChange={setGeneratePayslipOpen}>
+                      <DialogTrigger asChild>
+                        <Button data-testid="generate-payslip-btn" className="bg-[#002FA7] text-white hover:bg-[#001F70] gap-2">
+                          <Receipt className="h-4 w-4" weight="bold" />
+                          Generate Payslip
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle className="font-['Outfit']">Generate Payslip</DialogTitle>
+                        </DialogHeader>
+                        <p className="text-sm text-gray-500 -mt-2">Select employee and pay period to generate payslip.</p>
+                        <div className="space-y-4 pt-4">
                           <div className="space-y-2">
-                            <Label>Month</Label>
+                            <Label>Employee</Label>
                             <Select
-                              value={payslipForm.month.toString()}
-                              onValueChange={(value) => setPayslipForm({ ...payslipForm, month: parseInt(value) })}
+                              value={payslipForm.employee_id}
+                              onValueChange={(value) => setPayslipForm({ ...payslipForm, employee_id: value })}
                             >
-                              <SelectTrigger data-testid="payslip-month-select">
-                                <SelectValue />
+                              <SelectTrigger data-testid="payslip-employee-select">
+                                <SelectValue placeholder="Select employee" />
                               </SelectTrigger>
                               <SelectContent>
-                                {months.map((m) => (
-                                  <SelectItem key={m.value} value={m.value.toString()}>{m.label}</SelectItem>
+                                {employees.filter(e => e.role !== "admin" && e.basic_salary > 0).map((emp) => (
+                                  <SelectItem key={emp.id} value={emp.id}>
+                                    {emp.name} - ₹{emp.basic_salary?.toLocaleString()}
+                                  </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
+                            <p className="text-xs text-gray-500">Only employees with salary set are shown</p>
                           </div>
-                          <div className="space-y-2">
-                            <Label>Year</Label>
-                            <Input
-                              data-testid="payslip-year-input"
-                              type="number"
-                              value={payslipForm.year}
-                              onChange={(e) => setPayslipForm({ ...payslipForm, year: parseInt(e.target.value) })}
-                            />
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Month</Label>
+                              <Select
+                                value={payslipForm.month.toString()}
+                                onValueChange={(value) => setPayslipForm({ ...payslipForm, month: parseInt(value) })}
+                              >
+                                <SelectTrigger data-testid="payslip-month-select">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {months.map((m) => (
+                                    <SelectItem key={m.value} value={m.value.toString()}>{m.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Year</Label>
+                              <Input
+                                data-testid="payslip-year-input"
+                                type="number"
+                                value={payslipForm.year}
+                                onChange={(e) => setPayslipForm({ ...payslipForm, year: parseInt(e.target.value) })}
+                              />
+                            </div>
                           </div>
+                          <Button
+                            data-testid="submit-generate-payslip"
+                            onClick={handleGeneratePayslip}
+                            disabled={loading}
+                            className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
+                          >
+                            Generate Payslip
+                          </Button>
                         </div>
-                        <Button
-                          data-testid="submit-generate-payslip"
-                          onClick={handleGeneratePayslip}
-                          disabled={loading}
-                          className="w-full bg-[#002FA7] text-white hover:bg-[#001F70]"
-                        >
-                          Generate Payslip
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
 
                 <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -2206,12 +2349,20 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {payslips.length === 0 ? (
+                      {payslips.filter(ps =>
+                        (!payslipFilterEmp || ps.employee_id === payslipFilterEmp) &&
+                        (!payslipFilterMonth || ps.month === payslipFilterMonth) &&
+                        (!payslipFilterYear || ps.year === payslipFilterYear)
+                      ).length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="text-center py-8 text-gray-500">No payslips generated yet</td>
+                          <td colSpan="6" className="text-center py-8 text-gray-500">No payslips {payslips.length > 0 ? "match filters" : "generated yet"}</td>
                         </tr>
                       ) : (
-                        payslips.map((ps) => (
+                        payslips.filter(ps =>
+                          (!payslipFilterEmp || ps.employee_id === payslipFilterEmp) &&
+                          (!payslipFilterMonth || ps.month === payslipFilterMonth) &&
+                          (!payslipFilterYear || ps.year === payslipFilterYear)
+                        ).map((ps) => (
                           <tr key={ps.id} className="table-row">
                             <td className="table-cell">
                               <p className="font-medium text-gray-900">{ps.employee_name}</p>
@@ -2231,6 +2382,17 @@ export default function AdminDashboard() {
                                 >
                                   <DownloadSimple className="h-4 w-4" />
                                   PDF
+                                </Button>
+                                <Button
+                                  data-testid={`email-payslip-${ps.id}`}
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleEmailPayslip(ps.id, ps.employee_name)}
+                                  className="gap-1 border-slate-300 text-slate-600 hover:border-[#002FA7] hover:text-[#002FA7]"
+                                  title="Email payslip to employee"
+                                >
+                                  <Bell className="h-3.5 w-3.5" />
+                                  Email
                                 </Button>
                                 <Button
                                   data-testid={`delete-payslip-${ps.id}`}
