@@ -33,6 +33,9 @@ GMAIL_USER = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8001")
+# Extra fixed emails to always notify (comma-separated in .env)
+_extra_emails_raw = os.environ.get("EXTRA_NOTIFICATION_EMAILS", "")
+EXTRA_NOTIFICATION_EMAILS = [e.strip() for e in _extra_emails_raw.split(",") if e.strip()]
 
 def _sign_review_token(cr_id: int, reviewer_type: str) -> str:
     """Generate an HMAC-signed token for email review links (valid 7 days)."""
@@ -2776,12 +2779,22 @@ async def create_cr(data: CRCreate, request: Request):
             "SELECT email, role, name FROM users WHERE role IN ('admin', 'manager', 'devops_manager')",
             fetch_all=True
         )
+        # Build a set of emails already covered so extras get a generic token
+        notified = set()
         for rec in (recipients or []):
+            notified.add(rec["email"])
             token = _sign_review_token(cr_id, rec["role"])
-            reviewer_label = "Manager" if rec["role"] in ("manager", "devops_manager") else "Admin"
+            reviewer_label = "Admin" if rec["role"] == "admin" else "Manager"
             html = _cr_email_html(cr_row, token, reviewer_label)
             subject = f"[{cr_number}] CR Approval Required: {data.title}"
             asyncio.get_event_loop().run_in_executor(None, _send_email, [rec["email"]], subject, html)
+        # Also notify any extra fixed emails from .env (use admin token for them)
+        for extra_email in EXTRA_NOTIFICATION_EMAILS:
+            if extra_email not in notified:
+                token = _sign_review_token(cr_id, "admin")
+                html = _cr_email_html(cr_row, token, "Admin")
+                subject = f"[{cr_number}] CR Notification: {data.title}"
+                asyncio.get_event_loop().run_in_executor(None, _send_email, [extra_email], subject, html)
     except Exception as e:
         logger.warning(f"CR email dispatch failed: {e}")
 
