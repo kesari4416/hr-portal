@@ -538,6 +538,7 @@ class CRCreate(BaseModel):
     description: str
     cr_type: str = "General"
     priority: str = "medium"
+    assigned_manager_id: int
     metadata: Optional[dict] = None
 
 class CRUpdate(BaseModel):
@@ -2748,11 +2749,26 @@ async def get_my_salary_structure(request: Request):
 
 CR_TYPES = ["Installation", "Maintenance", "Software", "Hardware", "Access", "Policy Change", "Salary Revision", "Leave Adjustment", "Shift Change", "General", "Other"]
 
+@cr_router.get("/managers")
+async def get_cr_managers(request: Request):
+    """Return list of managers/admins the employee can assign their CR to."""
+    await get_current_user(request)
+    rows = await execute_query(
+        "SELECT id, name, email, role, department FROM users WHERE role IN ('manager', 'devops_manager', 'admin') ORDER BY name",
+        fetch_all=True
+    )
+    return [{"id": str(r["id"]), "name": r["name"], "email": r["email"], "role": r["role"], "department": r.get("department") or ""} for r in (rows or [])]
+
 @cr_router.post("/create")
 async def create_cr(data: CRCreate, request: Request):
     user = await get_current_user(request)
     now = datetime.now(timezone.utc).isoformat()
     metadata_json = json.dumps(data.metadata) if data.metadata else None
+
+    # Look up assigned manager
+    mgr = await execute_query("SELECT id, name, email, role FROM users WHERE id = %s", (data.assigned_manager_id,), fetch_one=True)
+    if not mgr or mgr["role"] not in ("manager", "devops_manager", "admin"):
+        raise HTTPException(status_code=400, detail="Invalid reporting manager selected")
 
     # Generate unique CR number: CR-YYYY-NNNN
     year = datetime.now(timezone.utc).year
@@ -2761,9 +2777,9 @@ async def create_cr(data: CRCreate, request: Request):
     cr_number = f"CR-{year}-{cr_seq:04d}"
 
     cr_id = await execute_query(
-        """INSERT INTO change_requests (cr_number, requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, metadata, created_at, updated_at)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s, %s)""",
-        (cr_number, user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, metadata_json, now, now),
+        """INSERT INTO change_requests (cr_number, requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, assigned_manager_id, assigned_manager_name, metadata, created_at, updated_at)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s, %s, %s, %s)""",
+        (cr_number, user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, data.assigned_manager_id, mgr["name"], metadata_json, now, now),
         last_id=True
     )
 
@@ -2773,32 +2789,21 @@ async def create_cr(data: CRCreate, request: Request):
         "cr_type": data.cr_type, "priority": data.priority
     }
 
-    # Send notification emails to all managers + admins (in background)
+    # Send email ONLY to the selected manager
     try:
-        recipients = await execute_query(
-            "SELECT email, role, name FROM users WHERE role IN ('admin', 'manager', 'devops_manager')",
-            fetch_all=True
-        )
-        # Build a set of emails already covered so extras get a generic token
-        notified = set()
-        for rec in (recipients or []):
-            notified.add(rec["email"])
-            token = _sign_review_token(cr_id, rec["role"])
-            reviewer_label = "Admin" if rec["role"] == "admin" else "Manager"
-            html = _cr_email_html(cr_row, token, reviewer_label)
-            subject = f"[{cr_number}] CR Approval Required: {data.title}"
-            asyncio.get_event_loop().run_in_executor(None, _send_email, [rec["email"]], subject, html)
-        # Also notify any extra fixed emails from .env (use admin token for them)
+        mgr_token = _sign_review_token(cr_id, mgr["role"])
+        mgr_html = _cr_email_html(cr_row, mgr_token, "Manager")
+        subject = f"[{cr_number}] CR Approval Required: {data.title}"
+        asyncio.get_event_loop().run_in_executor(None, _send_email, [mgr["email"]], subject, mgr_html)
+        # Also send info-only copy to EXTRA_NOTIFICATION_EMAILS (no action buttons)
         for extra_email in EXTRA_NOTIFICATION_EMAILS:
-            if extra_email not in notified:
-                token = _sign_review_token(cr_id, "admin")
-                html = _cr_email_html(cr_row, token, "Admin")
-                subject = f"[{cr_number}] CR Notification: {data.title}"
-                asyncio.get_event_loop().run_in_executor(None, _send_email, [extra_email], subject, html)
+            if extra_email != mgr["email"]:
+                extra_html = _cr_email_html(cr_row, mgr_token, "Notification")
+                asyncio.get_event_loop().run_in_executor(None, _send_email, [extra_email], f"[{cr_number}] New CR Submitted: {data.title}", extra_html)
     except Exception as e:
         logger.warning(f"CR email dispatch failed: {e}")
 
-    return {"id": str(cr_id), "cr_number": cr_number, "title": data.title, "status": "pending", "message": "Change request created"}
+    return {"id": str(cr_id), "cr_number": cr_number, "title": data.title, "status": "pending", "message": "Change request submitted successfully"}
 
 @cr_router.get("/my-requests")
 async def get_my_crs(request: Request):
@@ -3756,6 +3761,18 @@ async def startup():
                 logger.info("Added reporting_manager_id to users")
             except Exception as e:
                 logger.warning(f"Could not add reporting_manager_id: {e}")
+
+        # Migration: Add assigned_manager columns to change_requests
+        for col_def in ["assigned_manager_id INT DEFAULT NULL", "assigned_manager_name VARCHAR(255) DEFAULT NULL"]:
+            col_name = col_def.split()[0]
+            try:
+                await execute_query(f"SELECT {col_name} FROM change_requests LIMIT 1", fetch_one=True)
+            except Exception:
+                try:
+                    await execute_query(f"ALTER TABLE change_requests ADD COLUMN {col_def}")
+                    logger.info(f"Added {col_name} to change_requests")
+                except Exception as e:
+                    logger.warning(f"Could not add {col_name} to change_requests: {e}")
 
         # Migration: Add level_num to org_chart
         try:

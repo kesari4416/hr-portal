@@ -78,8 +78,9 @@ export default function EmployeeDashboard() {
   const [salaryStructure, setSalaryStructure] = useState(null);
   const [myCRs, setMyCRs] = useState([]);
   const [crDialogOpen, setCrDialogOpen] = useState(false);
-  const [crForm, setCrForm] = useState({ title: "", description: "", cr_type: "General", priority: "medium", requested_value: "" });
+  const [crForm, setCrForm] = useState({ title: "", description: "", cr_type: "General", priority: "medium", requested_value: "", manager_id: "" });
   const [crTypes, setCrTypes] = useState([]);
+  const [crManagers, setCrManagers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -148,6 +149,8 @@ export default function EmployeeDashboard() {
       // Fetch org chart & levels (non-critical)
       api.get("/admin/org-chart").then(r => setOrgNodes(r.data || [])).catch(() => {});
       api.get("/org-levels").then(r => setOrgLevels(r.data || [])).catch(() => {});
+      // Fetch managers list for CR submission
+      api.get("/cr/managers").then(r => setCrManagers(r.data || [])).catch(() => {});
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -488,6 +491,10 @@ export default function EmployeeDashboard() {
       toast.error("Title and description are required");
       return;
     }
+    if (!crForm.manager_id) {
+      toast.error("Please select a reporting manager");
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
@@ -495,12 +502,13 @@ export default function EmployeeDashboard() {
         description: crForm.description,
         cr_type: crForm.cr_type,
         priority: crForm.priority,
+        assigned_manager_id: parseInt(crForm.manager_id),
         metadata: crForm.requested_value ? { requested_value: crForm.requested_value } : null
       };
-      await api.post("/cr/create", payload);
-      toast.success("Change request submitted!");
+      const res = await api.post("/cr/create", payload);
+      toast.success(`Change request ${res.data.cr_number} submitted!`);
       setCrDialogOpen(false);
-      setCrForm({ title: "", description: "", cr_type: "General", priority: "medium", requested_value: "" });
+      setCrForm({ title: "", description: "", cr_type: "General", priority: "medium", requested_value: "", manager_id: "" });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to submit CR");
@@ -1697,6 +1705,33 @@ export default function EmployeeDashboard() {
                         className="min-h-[100px]"
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Reporting Manager <span className="text-red-500">*</span></Label>
+                      <Select
+                        value={crForm.manager_id}
+                        onValueChange={(v) => setCrForm({ ...crForm, manager_id: v })}
+                      >
+                        <SelectTrigger data-testid="cr-manager-select">
+                          <SelectValue placeholder="Select who should approve this request" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {crManagers.length === 0 && (
+                            <SelectItem value="" disabled>No managers available</SelectItem>
+                          )}
+                          {crManagers.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{m.name}</span>
+                                <span className="text-xs text-slate-400">
+                                  {m.role === "devops_manager" ? "DevOps Manager" : m.role.charAt(0).toUpperCase() + m.role.slice(1)}
+                                  {m.department ? ` · ${m.department}` : ""}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Type</Label>
@@ -1786,6 +1821,10 @@ export default function EmployeeDashboard() {
                         <td className="table-cell">
                           <p className="font-medium text-gray-900 text-sm">{cr.title}</p>
                           <p className="text-xs text-gray-500 line-clamp-1">{cr.description}</p>
+                          {cr.cr_number && <p className="text-xs text-[#002FA7] font-mono mt-0.5">{cr.cr_number}</p>}
+                          {cr.assigned_manager_name && (
+                            <p className="text-xs text-slate-400 mt-0.5">Manager: {cr.assigned_manager_name}</p>
+                          )}
                         </td>
                         <td className="table-cell">
                           <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{cr.cr_type}</span>
