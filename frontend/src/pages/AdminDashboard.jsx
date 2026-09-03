@@ -70,6 +70,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [analytics, setAnalytics] = useState(null);
   const [employees, setEmployees] = useState([]);
+  const [managers, setManagers] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [permissionRequests, setPermissionRequests] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -214,6 +215,9 @@ export default function AdminDashboard() {
         api.get("/org-levels").then(r => setOrgLevels(r.data || [])).catch(() => {});
         api.get("/admin/role-permissions").then(r => setRolePerms(r.data || { manager: {}, employee: {} })).catch(() => {});
       }
+      // Fetch managers list for reporting manager dropdown
+      const mgrs = (results[1].data || []).filter(e => ["manager", "devops_manager", "admin"].includes(e.role));
+      setManagers(mgrs);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -617,7 +621,8 @@ export default function AdminDashboard() {
       permission_hours: employee.permission_hours ?? null,
       role: employee.role || "employee",
       wfh_limit: employee.wfh_limit ?? null,
-      employee_code: employee.employee_code || ""
+      employee_code: employee.employee_code || "",
+      reporting_manager_id: employee.reporting_manager_id ?? null
     });
     setEditEmployeeOpen(true);
   };
@@ -1273,6 +1278,7 @@ export default function AdminDashboard() {
                         <SelectContent>
                           <SelectItem value="employee">Employee</SelectItem>
                           <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="devops_manager">DevOps Manager</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1377,9 +1383,12 @@ export default function AdminDashboard() {
                       </td>
                       <td className="table-cell">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
-                          emp.role === "admin" ? "bg-blue-50 text-[#002FA7] border border-blue-100" : emp.role === "manager" ? "bg-orange-50 text-orange-700 border border-orange-100" : "bg-slate-100 text-slate-600"
+                          emp.role === "admin" ? "bg-blue-50 text-[#002FA7] border border-blue-100"
+                          : emp.role === "manager" ? "bg-orange-50 text-orange-700 border border-orange-100"
+                          : emp.role === "devops_manager" ? "bg-purple-50 text-purple-700 border border-purple-100"
+                          : "bg-slate-100 text-slate-600"
                         }`}>
-                          {emp.role}
+                          {emp.role === "devops_manager" ? "DevOps Mgr" : emp.role}
                         </span>
                       </td>
                       <td className="table-cell">
@@ -1554,6 +1563,26 @@ export default function AdminDashboard() {
                       <SelectContent>
                         <SelectItem value="employee">Employee</SelectItem>
                         <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="devops_manager">DevOps Manager</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Reporting Manager</Label>
+                    <Select
+                      value={editForm.reporting_manager_id ? String(editForm.reporting_manager_id) : "none"}
+                      onValueChange={(value) => setEditForm({ ...editForm, reporting_manager_id: value === "none" ? null : parseInt(value) })}
+                    >
+                      <SelectTrigger data-testid="edit-reporting-manager">
+                        <SelectValue placeholder="Select reporting manager" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— None —</SelectItem>
+                        {managers.filter(m => m.id !== selectedEmployee?.id).map(m => (
+                          <SelectItem key={m.id} value={String(m.id)}>
+                            {m.name} ({m.role === "devops_manager" ? "DevOps Mgr" : m.role.charAt(0).toUpperCase() + m.role.slice(1)})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

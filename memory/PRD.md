@@ -96,8 +96,15 @@ Build an HR portal for all employees with Leave, Login, logout, break etc., fron
 
 ## What's Been Done (Recent)
 
-### Aug 2026 (latest session)
-- ✅ **GPS Bypass for GPS-disabled employees**: Fixed `clock-out`, `break/start`, `break/end` backend endpoints — all now check `gps_tracking_enabled` before requiring location (previously only `clock-in` had this check)
+### Sep 2026
+- ✅ **CR Email Notifications (Gmail SMTP)**: On CR submit, sends HTML notification emails to all managers + admins. Email shows CR ID, Title, Description, Priority, Type, and has Approve/Reject buttons.
+- ✅ **Unique CR Number**: Auto-generated `CR-YYYY-NNNN` format (e.g. `CR-2026-0001`). Existing rows backfilled.
+- ✅ **Token-based Review Page**: Managers/Admins receive email with signed link → opens browser-based review page (no app login needed). Reviewer can add notes and confirm approve/reject.
+- ✅ **Manager → Admin Email Chain**: After manager approves, a new email is automatically sent to all admins for final approval.
+- ✅ **Reporting Manager field**: Added `reporting_manager_id` to users table + Admin Employee edit form includes a Reporting Manager dropdown.
+- ✅ **DevOps Manager role**: New `devops_manager` role with same access as Manager. Available in create/edit employee dropdowns. Shown with purple badge.
+- ✅ **Gmail credentials placeholder**: Add `GMAIL_USER` and `GMAIL_APP_PASSWORD` to `/app/backend/.env` to activate email sending.
+- ✅ **GPS Bypass for GPS-disabled employees**: Fixed `clock-out`, `break/start`, `break/end` backend endpoints
 - ✅ **Frontend GPS fix**: `checkGPSStatus()` auto-call on load now skipped when GPS is disabled for the employee; break handlers (start/end) also respect GPS disable toggle
 - ✅ **Unified Timer Card**: Flexible Timer merged inside the Time Tracker card as a single container — controlled by `timer_access_enabled` admin toggle. Old standalone `lg:col-span-12` flexible timer card removed.
 

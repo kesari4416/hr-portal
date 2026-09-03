@@ -2,12 +2,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 import aiomysql
 import os
 import logging
 import json
+import smtplib
+import ssl
+import hmac
+import hashlib
+import base64 as _b64
+from email.message import EmailMessage
 from pathlib import Path
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -21,6 +27,126 @@ import asyncio
 IS_HTTPS = os.environ.get("FRONTEND_URL", "").startswith("https")
 COOKIE_SECURE = IS_HTTPS
 COOKIE_SAMESITE = "none" if IS_HTTPS else "lax"
+
+# ── Gmail SMTP Email Utility ────────────────────────────────────────────────────
+GMAIL_USER = os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8001")
+
+def _sign_review_token(cr_id: int, reviewer_type: str) -> str:
+    """Generate an HMAC-signed token for email review links (valid 7 days)."""
+    secret = os.environ.get("JWT_SECRET", "secret")
+    expires = int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())
+    payload = f"{cr_id}:{reviewer_type}:{expires}"
+    sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    raw = f"{cr_id}|{reviewer_type}|{expires}|{sig}"
+    return _b64.urlsafe_b64encode(raw.encode()).decode()
+
+def _verify_review_token(token: str) -> tuple[int, str]:
+    """Verify token and return (cr_id, reviewer_type) or raise HTTPException."""
+    try:
+        raw = _b64.urlsafe_b64decode(token.encode() + b"==").decode()
+        cr_id_str, reviewer_type, expires_str, sig = raw.split("|")
+        cr_id = int(cr_id_str)
+        expires = int(expires_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid review link")
+    if datetime.now(timezone.utc).timestamp() > expires:
+        raise HTTPException(status_code=400, detail="Review link has expired")
+    secret = os.environ.get("JWT_SECRET", "secret")
+    payload = f"{cr_id}:{reviewer_type}:{expires}"
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        raise HTTPException(status_code=400, detail="Invalid review link")
+    return cr_id, reviewer_type
+
+def _send_email(to_addresses: list[str], subject: str, html_body: str) -> None:
+    """Send HTML email via Gmail SMTP. Silently skips if credentials not set."""
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        logging.getLogger("hr_portal").warning("Gmail credentials not set — skipping email send.")
+        return
+    for to in to_addresses:
+        try:
+            msg = EmailMessage()
+            msg["Subject"] = subject
+            msg["From"] = f"Sparkcurv HR <{GMAIL_USER}>"
+            msg["To"] = to
+            msg.set_content("Please view this email in an HTML-capable client.")
+            msg.add_alternative(html_body, subtype="html")
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx, timeout=20) as smtp:
+                smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                smtp.send_message(msg)
+        except Exception as e:
+            logging.getLogger("hr_portal").warning(f"Email send failed to {to}: {e}")
+
+def _cr_email_html(cr: dict, review_token: str, reviewer_type: str) -> str:
+    """Build the CR notification HTML email with Approve / Reject buttons."""
+    backend_url = BACKEND_URL.rstrip("/")
+    approve_url = f"{backend_url}/api/cr/review/{review_token}?action=approve"
+    reject_url  = f"{backend_url}/api/cr/review/{review_token}?action=reject"
+    priority_color = {"high": "#dc2626", "medium": "#d97706", "low": "#16a34a"}.get(
+        (cr.get("priority") or "medium").lower(), "#d97706"
+    )
+    return f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f6f9">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
+<table width="580" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1)">
+  <tr><td style="background:#002FA7;padding:28px 32px">
+    <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700">Sparkcurv HR Portal</h1>
+    <p style="margin:6px 0 0;color:#93c5fd;font-size:14px">Change Request Approval Required</p>
+  </td></tr>
+  <tr><td style="padding:32px">
+    <p style="margin:0 0 8px;font-size:13px;color:#6b7280">Change Request ID</p>
+    <p style="margin:0 0 24px;font-size:20px;font-weight:700;color:#002FA7;letter-spacing:1px">{cr.get("cr_number","CR-????")}</p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+      <tr><td style="padding:20px">
+        <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px">Title</p>
+        <p style="margin:0 0 16px;font-size:17px;font-weight:600;color:#111827">{cr.get("title","")}</p>
+        <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px">Description</p>
+        <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6">{cr.get("description","")}</p>
+        <table cellpadding="0" cellspacing="0"><tr>
+          <td style="padding-right:24px">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase">Type</p>
+            <p style="margin:0;font-size:13px;color:#111827">{cr.get("cr_type","General")}</p>
+          </td>
+          <td style="padding-right:24px">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase">Priority</p>
+            <p style="margin:0;font-size:13px;font-weight:700;color:{priority_color}">{(cr.get("priority","medium")).upper()}</p>
+          </td>
+          <td>
+            <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase">Submitted by</p>
+            <p style="margin:0;font-size:13px;color:#111827">{cr.get("requester_name","")}</p>
+          </td>
+        </tr></table>
+      </td></tr>
+    </table>
+
+    <p style="margin:28px 0 16px;font-size:14px;color:#374151">
+      As a <strong>{reviewer_type.replace("_"," ").title()}</strong>, please review and take action on this request:
+    </p>
+
+    <table cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:12px">
+        <a href="{approve_url}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:14px">Approve</a>
+      </td>
+      <td>
+        <a href="{reject_url}" style="display:inline-block;background:#dc2626;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:14px">Reject</a>
+      </td>
+    </tr></table>
+
+    <p style="margin:24px 0 0;font-size:12px;color:#9ca3af">
+      Clicking Approve or Reject will open a review page where you can add notes before confirming.<br>
+      This link is valid for <strong>7 days</strong>.
+    </p>
+  </td></tr>
+  <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0">
+    <p style="margin:0;font-size:12px;color:#9ca3af">Sparkcurv HR Portal — Automated notification. Do not reply to this email.</p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>"""
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -162,7 +288,7 @@ async def require_admin(request: Request) -> dict:
 
 async def require_admin_or_manager(request: Request) -> dict:
     user = await get_current_user(request)
-    if user.get("role") not in ("admin", "manager"):
+    if user.get("role") not in ("admin", "manager", "devops_manager"):
         raise HTTPException(status_code=403, detail="Admin or Manager access required")
     return user
 
@@ -340,6 +466,7 @@ class EmployeeUpdate(BaseModel):
     role: Optional[str] = None
     wfh_limit: Optional[int] = None
     employee_code: Optional[str] = None
+    reporting_manager_id: Optional[int] = None
 
 class PermissionRequest(BaseModel):
     duration_minutes: int
@@ -1078,7 +1205,7 @@ async def cancel_leave_request(leave_id: str, request: Request):
 @admin_router.get("/employees")
 async def get_all_employees(request: Request):
     await require_admin_or_manager(request)
-    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled, timer_access_enabled FROM users ORDER BY created_at DESC", fetch_all=True)
+    rows = await execute_query("SELECT id, email, name, role, department, position, avatar_url, created_at, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, gps_tracking_enabled, timer_access_enabled, reporting_manager_id FROM users ORDER BY created_at DESC", fetch_all=True)
     result = []
     for emp in (rows or []):
         e = dict(emp)
@@ -1108,7 +1235,7 @@ async def create_employee(user_data: UserRegister, request: Request):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    role = user_data.role if user_data.role in ("employee", "manager") else "employee"
+    role = user_data.role if user_data.role in ("employee", "manager", "devops_manager") else "employee"
     hashed = hash_password(user_data.password)
 
     # Generate next employee code (SC24001, SC24002, ...) or use provided
@@ -1146,7 +1273,7 @@ async def update_employee(employee_id: str, update_data: EmployeeUpdate, request
         raise HTTPException(status_code=400, detail="No update data provided")
 
     # Validate role if being changed
-    if "role" in update_dict and update_dict["role"] not in ("employee", "manager", "admin"):
+    if "role" in update_dict and update_dict["role"] not in ("employee", "manager", "devops_manager", "admin"):
         raise HTTPException(status_code=400, detail="Invalid role")
 
     # Validate employee_code uniqueness if being changed
@@ -1161,7 +1288,7 @@ async def update_employee(employee_id: str, update_data: EmployeeUpdate, request
     values = list(update_dict.values()) + [int(employee_id)]
     await execute_query(f"UPDATE users SET {set_clause} WHERE id = %s", tuple(values))
 
-    emp = await execute_query("SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
+    emp = await execute_query("SELECT id, email, name, role, department, position, avatar_url, casual_leave, sick_leave, loss_of_pay, permission_hours, half_day_leave, shift, basic_salary, employee_code, wfh_limit, reporting_manager_id FROM users WHERE id = %s", (int(employee_id),), fetch_one=True)
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     emp["id"] = str(emp.pop("id"))
@@ -2623,13 +2750,42 @@ async def create_cr(data: CRCreate, request: Request):
     user = await get_current_user(request)
     now = datetime.now(timezone.utc).isoformat()
     metadata_json = json.dumps(data.metadata) if data.metadata else None
+
+    # Generate unique CR number: CR-YYYY-NNNN
+    year = datetime.now(timezone.utc).year
+    count_row = await execute_query("SELECT COUNT(*) as cnt FROM change_requests", fetch_one=True)
+    cr_seq = (count_row["cnt"] if count_row else 0) + 1
+    cr_number = f"CR-{year}-{cr_seq:04d}"
+
     cr_id = await execute_query(
-        """INSERT INTO change_requests (requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, metadata, created_at, updated_at)
-           VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s, %s)""",
-        (user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, metadata_json, now, now),
+        """INSERT INTO change_requests (cr_number, requester_id, requester_name, title, description, cr_type, priority, status, manager_approval, admin_approval, metadata, created_at, updated_at)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', 'pending', 'pending', %s, %s, %s)""",
+        (cr_number, user["id"], user["name"], data.title, data.description, data.cr_type, data.priority, metadata_json, now, now),
         last_id=True
     )
-    return {"id": str(cr_id), "title": data.title, "status": "pending", "message": "Change request created"}
+
+    cr_row = {
+        "id": cr_id, "cr_number": cr_number, "requester_name": user["name"],
+        "title": data.title, "description": data.description,
+        "cr_type": data.cr_type, "priority": data.priority
+    }
+
+    # Send notification emails to all managers + admins (in background)
+    try:
+        recipients = await execute_query(
+            "SELECT email, role, name FROM users WHERE role IN ('admin', 'manager', 'devops_manager')",
+            fetch_all=True
+        )
+        for rec in (recipients or []):
+            token = _sign_review_token(cr_id, rec["role"])
+            reviewer_label = "Manager" if rec["role"] in ("manager", "devops_manager") else "Admin"
+            html = _cr_email_html(cr_row, token, reviewer_label)
+            subject = f"[{cr_number}] CR Approval Required: {data.title}"
+            asyncio.get_event_loop().run_in_executor(None, _send_email, [rec["email"]], subject, html)
+    except Exception as e:
+        logger.warning(f"CR email dispatch failed: {e}")
+
+    return {"id": str(cr_id), "cr_number": cr_number, "title": data.title, "status": "pending", "message": "Change request created"}
 
 @cr_router.get("/my-requests")
 async def get_my_crs(request: Request):
@@ -2665,6 +2821,159 @@ async def delete_cr(cr_id: str, request: Request):
 async def get_cr_types(request: Request):
     await get_current_user(request)
     return CR_TYPES
+
+
+# ── Email Review Page (token-based, no login required) ─────────────────────────
+@cr_router.get("/review/{token}", response_class=HTMLResponse)
+async def cr_review_page(token: str, action: Optional[str] = None):
+    """Serve the HTML review page for Approve/Reject from email link."""
+    try:
+        cr_id, reviewer_type = _verify_review_token(token)
+    except HTTPException as e:
+        return HTMLResponse(_review_error_html(e.detail), status_code=400)
+    cr = await execute_query("SELECT * FROM change_requests WHERE id = %s", (cr_id,), fetch_one=True)
+    if not cr:
+        return HTMLResponse(_review_error_html("Change request not found."), status_code=404)
+    pre_action = action if action in ("approve", "reject") else None
+    return HTMLResponse(_review_page_html(cr, token, reviewer_type, pre_action))
+
+@cr_router.post("/review/{token}")
+async def cr_review_submit(token: str, request: Request):
+    """Process the review form submission (approve/reject + notes)."""
+    try:
+        cr_id, reviewer_type = _verify_review_token(token)
+    except HTTPException as e:
+        return HTMLResponse(_review_error_html(e.detail), status_code=400)
+    form = await request.form()
+    action = str(form.get("action", "")).strip()
+    notes = str(form.get("notes", "")).strip()
+    if action not in ("approve", "reject"):
+        return HTMLResponse(_review_error_html("Invalid action."), status_code=400)
+    cr = await execute_query("SELECT * FROM change_requests WHERE id = %s", (cr_id,), fetch_one=True)
+    if not cr:
+        return HTMLResponse(_review_error_html("Change request not found."), status_code=404)
+    now = datetime.now(timezone.utc).isoformat()
+    is_admin = reviewer_type == "admin"
+    if is_admin:
+        if cr.get("admin_approval") != "pending":
+            return HTMLResponse(_review_success_html(cr.get("cr_number",""), action, already_done=True))
+        new_status = "approved" if action == "approve" else "rejected"
+        await execute_query(
+            "UPDATE change_requests SET status=%s, admin_approval=%s, admin_notes=%s, admin_action_at=%s, updated_at=%s WHERE id=%s",
+            (new_status, action + "d", notes, now, now, cr_id)
+        )
+    else:
+        if cr.get("manager_approval") != "pending":
+            return HTMLResponse(_review_success_html(cr.get("cr_number",""), action, already_done=True))
+        new_status = "manager_approved" if action == "approve" else "rejected"
+        await execute_query(
+            "UPDATE change_requests SET status=%s, manager_approval=%s, manager_notes=%s, manager_action_at=%s, updated_at=%s WHERE id=%s",
+            (new_status, action + "d", notes, now, now, cr_id)
+        )
+        if action == "approve":
+            try:
+                cr_updated = await execute_query("SELECT * FROM change_requests WHERE id=%s", (cr_id,), fetch_one=True)
+                admins = await execute_query("SELECT email FROM users WHERE role='admin'", fetch_all=True)
+                import asyncio as _asyncio
+                for adm in (admins or []):
+                    adm_token = _sign_review_token(cr_id, "admin")
+                    html_body = _cr_email_html(cr_updated, adm_token, "Admin")
+                    subj = f"[{cr_updated.get('cr_number','CR')}] Manager Approved — Final Approval Needed: {cr_updated.get('title','')}"
+                    _asyncio.get_event_loop().run_in_executor(None, _send_email, [adm["email"]], subj, html_body)
+            except Exception as ex:
+                logger.warning(f"Admin email after manager-approve failed: {ex}")
+    return HTMLResponse(_review_success_html(cr.get("cr_number",""), action))
+
+def _review_page_html(cr: dict, token: str, reviewer_type: str, pre_action) -> str:
+    cr_num = cr.get("cr_number") or f"CR-{cr['id']}"
+    priority_color = {"high": "#dc2626", "medium": "#d97706", "low": "#16a34a"}.get(
+        (cr.get("priority") or "medium").lower(), "#d97706"
+    )
+    approve_checked = 'checked' if pre_action == "approve" else ''
+    reject_checked  = 'checked' if pre_action == "reject" else ''
+    reviewer_label = reviewer_type.replace("_", " ").title()
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CR Review — {cr_num}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:Arial,sans-serif;background:#f4f6f9;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}}
+.card{{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);max-width:560px;width:100%;overflow:hidden}}
+.header{{background:#002FA7;padding:24px 32px;color:#fff}}
+.header h1{{font-size:18px;font-weight:700}}
+.header p{{font-size:13px;color:#93c5fd;margin-top:4px}}
+.body{{padding:28px 32px}}
+.cr-id{{font-size:13px;color:#6b7280;margin-bottom:4px}}
+.cr-title{{font-size:20px;font-weight:700;color:#002FA7;margin-bottom:16px}}
+.meta{{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:20px}}
+.meta-label{{font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}}
+.meta-value{{font-size:14px;color:#374151;margin-bottom:12px;line-height:1.5}}
+.meta-value:last-child{{margin-bottom:0}}
+.badge{{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;background:#f1f5f9;color:{priority_color}}}
+.action-group{{display:flex;gap:12px;margin-bottom:16px}}
+.radio-btn{{flex:1;cursor:pointer}}
+.radio-btn input{{display:none}}
+.radio-btn .lbl{{display:block;padding:14px;border:2px solid #e2e8f0;border-radius:10px;text-align:center;font-weight:700;font-size:14px;transition:.2s}}
+.radio-btn input[value="approve"]+.lbl{{color:#16a34a}}
+.radio-btn input[value="reject"]+.lbl{{color:#dc2626}}
+.radio-btn input:checked[value="approve"]+.lbl{{border-color:#16a34a;background:#f0fdf4}}
+.radio-btn input:checked[value="reject"]+.lbl{{border-color:#dc2626;background:#fef2f2}}
+textarea{{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:12px;font-size:14px;resize:vertical;min-height:90px;font-family:inherit;margin-bottom:16px}}
+textarea:focus{{outline:none;border-color:#002FA7;box-shadow:0 0 0 3px rgba(0,47,167,.1)}}
+button[type=submit]{{width:100%;background:#002FA7;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer}}
+button[type=submit]:hover{{background:#001f7a}}
+.footer{{background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 32px;font-size:12px;color:#9ca3af}}
+</style></head>
+<body><div class="card">
+  <div class="header"><h1>Sparkcurv HR Portal</h1><p>Change Request Review — {reviewer_label}</p></div>
+  <div class="body">
+    <div class="cr-id">Change Request ID</div>
+    <div class="cr-title">{cr_num}</div>
+    <div class="meta">
+      <div class="meta-label">Title</div>
+      <div class="meta-value" style="font-weight:600;font-size:16px">{cr.get("title","")}</div>
+      <div class="meta-label">Description</div>
+      <div class="meta-value">{cr.get("description","")}</div>
+      <div style="display:flex;gap:32px">
+        <div><div class="meta-label">Type</div><div class="meta-value">{cr.get("cr_type","General")}</div></div>
+        <div><div class="meta-label">Priority</div><div class="meta-value"><span class="badge">{(cr.get("priority","medium")).upper()}</span></div></div>
+        <div><div class="meta-label">Submitted By</div><div class="meta-value">{cr.get("requester_name","")}</div></div>
+      </div>
+    </div>
+    <form method="POST" action="/api/cr/review/{token}">
+      <div class="meta-label" style="margin-bottom:8px">Your Decision</div>
+      <div class="action-group">
+        <label class="radio-btn"><input type="radio" name="action" value="approve" required {approve_checked}><span class="lbl">&#10003; Approve</span></label>
+        <label class="radio-btn"><input type="radio" name="action" value="reject" {reject_checked}><span class="lbl">&#10007; Reject</span></label>
+      </div>
+      <div class="meta-label" style="margin-bottom:8px">Notes <span style="font-weight:400;color:#9ca3af">(optional)</span></div>
+      <textarea name="notes" placeholder="Add your notes or reasons here..."></textarea>
+      <button type="submit">Confirm Decision</button>
+    </form>
+  </div>
+  <div class="footer">Sparkcurv HR Portal — Secure review link. Valid for 7 days.</div>
+</div></body></html>"""
+
+def _review_success_html(cr_num: str, action: str, already_done: bool = False) -> str:
+    color = "#16a34a" if action == "approve" else "#dc2626"
+    icon  = "&#10003;" if action == "approve" else "&#10007;"
+    label = "Approved" if action == "approve" else "Rejected"
+    msg   = "You have already acted on this request." if already_done else "Your decision has been recorded successfully."
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Review Complete</title>
+<style>body{{font-family:Arial,sans-serif;background:#f4f6f9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}}
+.card{{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);max-width:440px;width:100%;padding:40px;text-align:center}}
+.icon{{font-size:56px;color:{color};margin-bottom:16px}}
+h2{{color:#111827;font-size:20px;margin-bottom:8px}}p{{color:#6b7280;font-size:14px}}</style></head>
+<body><div class="card"><div class="icon">{icon}</div><h2>{cr_num} — {label}</h2><p>{msg}</p></div></body></html>"""
+
+def _review_error_html(message: str) -> str:
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Review Error</title>
+<style>body{{font-family:Arial,sans-serif;background:#f4f6f9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}}
+.card{{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);max-width:440px;width:100%;padding:40px;text-align:center}}
+.icon{{font-size:56px;color:#dc2626;margin-bottom:16px}}
+h2{{color:#111827;font-size:20px;margin-bottom:8px}}p{{color:#6b7280;font-size:14px}}</style></head>
+<body><div class="card"><div class="icon">&#9888;</div><h2>Review Link Error</h2><p>{message}</p></div></body></html>"""
+
 
 # Admin/Manager: list all CRs
 @admin_router.get("/change-requests")
@@ -3404,6 +3713,36 @@ async def startup():
                     logger.info(f"Added {col_name} to change_requests")
                 except Exception as e:
                     logger.warning(f"Could not add {col_name} to change_requests: {e}")
+
+        # Migration: Add cr_number to change_requests
+        try:
+            await execute_query("SELECT cr_number FROM change_requests LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE change_requests ADD COLUMN cr_number VARCHAR(30) AFTER id")
+                # Backfill existing rows
+                rows = await execute_query("SELECT id, created_at FROM change_requests ORDER BY id", fetch_all=True)
+                year_now = datetime.now(timezone.utc).year
+                for i, row in enumerate(rows or [], start=1):
+                    try:
+                        yr = int(str(row.get("created_at",""))[:4]) if row.get("created_at") else year_now
+                    except Exception:
+                        yr = year_now
+                    cn = f"CR-{yr}-{i:04d}"
+                    await execute_query("UPDATE change_requests SET cr_number=%s WHERE id=%s", (cn, row["id"]))
+                logger.info("Added cr_number to change_requests and backfilled")
+            except Exception as e:
+                logger.warning(f"Could not add cr_number: {e}")
+
+        # Migration: Add reporting_manager_id to users
+        try:
+            await execute_query("SELECT reporting_manager_id FROM users LIMIT 1", fetch_one=True)
+        except Exception:
+            try:
+                await execute_query("ALTER TABLE users ADD COLUMN reporting_manager_id INT DEFAULT NULL")
+                logger.info("Added reporting_manager_id to users")
+            except Exception as e:
+                logger.warning(f"Could not add reporting_manager_id: {e}")
 
         # Migration: Add level_num to org_chart
         try:
